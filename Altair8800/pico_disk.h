@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 // MITS 88-DCDD compatible disk controller for Pico
-// In-memory implementation with RAM-based disk image
+// Copy-on-write implemented via per-sector patch list
 
 // Status bits (active-low)
 #define STATUS_ENWD         1
@@ -38,9 +38,15 @@
 #define DRIVE_SELECT_MASK   0x0F
 #define SECTOR_SHIFT_BITS   1
 
+typedef struct sector_patch {
+    uint16_t index;
+    struct sector_patch *next;
+    uint8_t data[SECTOR_SIZE];
+} sector_patch_t;
+
 typedef struct
 {
-    uint8_t *disk_image;        // Pointer to disk image in RAM
+    const uint8_t *disk_image_flash; // Read-only pointer to flash image
     uint32_t disk_size;         // Size of disk image
     uint8_t track;              // Current track (0-76)
     uint8_t sector;             // Current sector (0-31)
@@ -52,6 +58,7 @@ typedef struct
     bool sector_dirty;          // Sector needs writing back
     bool have_sector_data;      // Sector buffer is valid
     bool disk_loaded;           // Disk image is loaded
+    sector_patch_t *patches;    // Linked list of modified sectors
 } pico_disk_t;
 
 typedef struct
