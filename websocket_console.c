@@ -324,23 +324,11 @@ static void websocket_console_core1_entry(void)
 
     printf("[Core1] WebSocket server running, entering poll loop\n");
 
-    bool led_on = false;
-    absolute_time_t next_toggle = make_timeout_time_ms(500); // 2 Hz
-
     // Main poll loop - all CYW43/lwIP access stays on core 1
     while (true)
     {
         cyw43_arch_poll();
         ws_poll();
-
-        // Simple timed blink
-        if (absolute_time_diff_us(get_absolute_time(), next_toggle) <= 0)
-        {
-            led_on = !led_on;
-            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
-            next_toggle = make_timeout_time_ms(500);
-        }
-
         tight_loop_contents();
     }
 }
