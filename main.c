@@ -1,5 +1,4 @@
 #include "pico/stdlib.h"
-#include "pico/cyw43_arch.h"
 #include "pico/error.h"
 #include <stdio.h>
 #include <string.h>
@@ -8,7 +7,6 @@
 #include "Altair8800/pico_disk.h"
 #include "io_ports.h"
 #include "inky_display.h"
-#include "wifi.h"
 #include "websocket_console.h"
 
 #define ASCII_MASK_7BIT 0x7F
@@ -111,8 +109,7 @@ static uint8_t terminal_read(void)
     uint8_t ws_ch = 0;
     if (websocket_console_try_dequeue_input(&ws_ch))
     {
-        uint8_t ch = (uint8_t)(ws_ch & ASCII_MASK_7BIT);
-        return process_ansi_sequence(ch);
+        return (uint8_t)(ws_ch & ASCII_MASK_7BIT);
     }
 
     int c = getchar_timeout_us(0); // Non-blocking read
@@ -149,33 +146,34 @@ int main(void)
 
     inky_display_init();
 
-    bool wifi_connected = wifi_init();
+    // Launch network task on core 1 (handles Wi-Fi init, WebSocket server, polling)
+    websocket_console_start();
+
+    // Wait for core 1 to complete Wi-Fi initialization
+    // Returns 0 on failure, or raw 32-bit IP address on success
+    printf("Waiting for Wi-Fi initialization on core 1...\n");
+    uint32_t ip_raw = websocket_console_wait_for_wifi();
     char ip_buffer[32] = {0};
-    bool ip_ready = wifi_connected && wifi_get_ip(ip_buffer, sizeof(ip_buffer));
-    if (!ip_ready)
+    bool wifi_ok = (ip_raw != 0);
+    
+    if (wifi_ok)
     {
-        strncpy(ip_buffer, wifi_connected ? "Awaiting DHCP" : "No network", sizeof(ip_buffer) - 1);
-        ip_buffer[sizeof(ip_buffer) - 1] = '\0';
-    }
-
-    inky_display_show_status(wifi_get_ssid(), ip_buffer, wifi_connected);
-    bool led_available = wifi_is_ready();
-
-    if (led_available)
-    {
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-        sleep_ms(200);
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-    }
-
-    if (wifi_connected)
-    {
-        websocket_console_start();
+        // Convert raw IP to dotted-decimal string
+        snprintf(ip_buffer, sizeof(ip_buffer), "%lu.%lu.%lu.%lu",
+                 (unsigned long)(ip_raw & 0xFF),
+                 (unsigned long)((ip_raw >> 8) & 0xFF),
+                 (unsigned long)((ip_raw >> 16) & 0xFF),
+                 (unsigned long)((ip_raw >> 24) & 0xFF));
+        printf("Wi-Fi connected. IP: %s\n", ip_buffer);
     }
     else
     {
+        strncpy(ip_buffer, "No network", sizeof(ip_buffer) - 1);
         printf("Wi-Fi unavailable; USB terminal only.\n");
     }
+
+    // Show status on Inky display if available
+    inky_display_show_status("NCW", ip_buffer, wifi_ok);
 
     // // Wait for user to press Enter (non-blocking check)
     // bool enter_pressed = false;
@@ -270,25 +268,9 @@ int main(void)
     printf("Starting Altair 8800 emulation...\n");
     printf("\n");
 
-    // Blink LED to show we're running
-    uint32_t cycle_count = 0;
-
-    // Main emulation loop
+    // Main emulation loop - core 0 dedicated to CPU emulation
     while (true)
     {
         i8080_cycle(&cpu);
-
-        // Blink LED every ~100000 cycles to show activity
-        if (led_available)
-        {
-            cycle_count++;
-            if (cycle_count >= 100000)
-            {
-                static bool led_state = false;
-                led_state = !led_state;
-                cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_state);
-                cycle_count = 0;
-            }
-        }
     }
 }

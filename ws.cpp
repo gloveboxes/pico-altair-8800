@@ -10,8 +10,8 @@ namespace
 {
 static constexpr uint16_t WS_SERVER_PORT = 8082;
 static constexpr uint32_t WS_MAX_CLIENTS = 1;
-static constexpr size_t WS_FRAME_PAYLOAD = 256;
-static constexpr size_t WS_MAX_FRAMES_PER_POLL = 16;
+static constexpr size_t WS_FRAME_PAYLOAD = 4;
+static constexpr size_t WS_MAX_FRAMES_PER_POLL = 8;
 
 struct ws_context_t
 {

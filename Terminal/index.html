@@ -353,8 +353,21 @@
        * Handle key press events with better organization
        */
       function handleKeyPress(key, ev) {
-        // Let xterm.js handle all keys naturally, including Ctrl combinations
-        // The C code state machine will process ANSI escape sequences
+        if (ev.ctrlKey) {
+          sendControlCharacter(ev.keyCode & 0x1F);
+          return;
+        }
+
+        if (ev.keyCode === 27) {
+          if (state.term) {
+            state.term.prompt(key);
+            state.term.write(key);
+          } else {
+            sendToServer(key);
+          }
+          return;
+        }
+
         handleCharacterMode(key, ev);
       }
 
@@ -362,17 +375,34 @@
        * Handle character input mode
        */
       function handleCharacterMode(key, ev) {
+        const ctrlCode = (letter) => letter.charCodeAt(0) & 0x1F;
+
+        const keyMappings = {
+          39: ctrlCode('D'), // cursor right -> ctrl D
+          37: ctrlCode('S'), // cursor left -> ctrl S
+          38: ctrlCode('E'), // cursor up -> ctrl E
+          40: ctrlCode('X'), // cursor down -> ctrl X
+          45: ctrlCode('O'), // insert -> ctrl O
+          46: ctrlCode('G'), // delete -> ctrl G
+          8: ctrlCode('H')   // backspace -> ctrl H
+        };
+
+        if (keyMappings[ev.keyCode]) {
+          sendControlCharacter(keyMappings[ev.keyCode]);
+          return;
+        }
+
         if (ev.keyCode === 13) { // Enter
-          sendToServer("\r");
+          if (state.term) {
+            state.term.prompt("\r");
+          } else {
+            sendToServer("\r");
+          }
           return;
         }
 
         // Default character input - send to server only, no local echo
-        // All keys including arrow keys, backspace, etc. will be sent as natural
-        // characters or ANSI escape sequences which the C code state machine will handle
         sendToServer(key);
-
-        // Note: No local echo - server will echo back if needed
       }
 
       /**
