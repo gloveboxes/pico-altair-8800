@@ -6,7 +6,6 @@
 #include "Altair8800/memory.h"
 #include "Altair8800/pico_disk.h"
 #include "io_ports.h"
-#include "inky_display.h"
 #include "websocket_console.h"
 
 #define ASCII_MASK_7BIT 0x7F
@@ -144,8 +143,6 @@ int main(void)
     // Give more time for USB serial to enumerate
     sleep_ms(3000);
 
-    inky_display_init();
-
     // Launch network task on core 1 (handles Wi-Fi init, WebSocket server, polling)
     websocket_console_start();
 
@@ -171,9 +168,6 @@ int main(void)
         strncpy(ip_buffer, "No network", sizeof(ip_buffer) - 1);
         printf("Wi-Fi unavailable; USB terminal only.\n");
     }
-
-    // Show status on Inky display if available
-    inky_display_show_status("NCW", ip_buffer, wifi_ok);
 
     // Send test output
     printf("\n\n*** USB Serial Active ***\n");

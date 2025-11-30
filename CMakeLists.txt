@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.13)
 
+# Wi-Fi credentials
+set(WIFI_SSID "" CACHE STRING "Wi-Fi network SSID for CYW43 station mode")
+set(WIFI_PASSWORD "" CACHE STRING "Wi-Fi network password for CYW43 station mode")
+
 # 💡 Select board BEFORE importing SDK (safer)
 set(PICO_BOARD pico2_w)
 
@@ -51,10 +55,6 @@ target_link_libraries(pico_ws_server
         lwipopts_provider
 )
 
-set(WIFI_SSID "" CACHE STRING "Wi-Fi network SSID for CYW43 station mode")
-set(WIFI_PASSWORD "" CACHE STRING "Wi-Fi network password for CYW43 station mode")
-option(ENABLE_INKY_DISPLAY "Enable Pimoroni Inky Pack welcome display" OFF)
-
 set(ALTAIR_SOURCES
     main.c
     Altair8800/intel8080.c
@@ -69,17 +69,6 @@ set(ALTAIR_SOURCES
 )
 
 set(ALTAIR_LIBS)
-
-if(ENABLE_INKY_DISPLAY)
-    set(PIMORONI_PICO_PATH ${CMAKE_CURRENT_LIST_DIR}/lib/pimoroni-pico CACHE PATH "Pimoroni Pico library path")
-    include(${PIMORONI_PICO_PATH}/pimoroni_pico_import.cmake)
-    include(${PIMORONI_PICO_PATH}/common/pimoroni_bus.cmake)
-    include(${PIMORONI_PICO_PATH}/libraries/pico_graphics/pico_graphics.cmake)
-    include(${PIMORONI_PICO_PATH}/drivers/uc8151/uc8151.cmake)
-
-    list(APPEND ALTAIR_SOURCES inky_display.cpp)
-    list(APPEND ALTAIR_LIBS uc8151)
-endif()
 
 add_executable(altair ${ALTAIR_SOURCES})
 
@@ -96,7 +85,6 @@ target_include_directories(altair PRIVATE
 target_compile_definitions(altair PRIVATE
     WIFI_SSID=\"${WIFI_SSID}\"
     WIFI_PASSWORD=\"${WIFI_PASSWORD}\"
-    ENABLE_INKY_DISPLAY=$<BOOL:${ENABLE_INKY_DISPLAY}>
 )
 
 # USB stdio on, UART stdio off
