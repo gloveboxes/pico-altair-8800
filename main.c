@@ -155,7 +155,7 @@ int main(void)
     uint32_t ip_raw = websocket_console_wait_for_wifi();
     char ip_buffer[32] = {0};
     bool wifi_ok = (ip_raw != 0);
-    
+
     if (wifi_ok)
     {
         // Convert raw IP to dotted-decimal string
@@ -174,28 +174,6 @@ int main(void)
 
     // Show status on Inky display if available
     inky_display_show_status("NCW", ip_buffer, wifi_ok);
-
-    // // Wait for user to press Enter (non-blocking check)
-    // bool enter_pressed = false;
-    // while (!enter_pressed)
-    // {
-    //     int c = getchar_timeout_us(100000); // Check every 100ms
-    //     if (c == '\n' || c == '\r')
-    //     {
-    //         enter_pressed = true;
-    //     }
-    //     // Blink LED while waiting
-    //     if (led_available)
-    //     {
-    //         static uint32_t blink_count = 0;
-    //         if (++blink_count % 5 == 0)
-    //         { // Every 500ms
-    //             static bool led_on = false;
-    //             led_on = !led_on;
-    //             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
-    //         }
-    //     }
-    // }
 
     // Send test output
     printf("\n\n*** USB Serial Active ***\n");
