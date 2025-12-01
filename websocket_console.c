@@ -1,8 +1,20 @@
 #include "websocket_console.h"
 
+#include "pico/stdlib.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+
+#ifndef ALTAIR_ENABLE_WEBSOCKET
+#define ALTAIR_ENABLE_WEBSOCKET 0
+#endif
+
+#if ALTAIR_ENABLE_WEBSOCKET
+
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
-#include "pico/stdlib.h"
 #include "pico/util/queue.h"
 #include "pico/sync.h"
 
@@ -12,10 +24,6 @@
 
 #include "ws.h"
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #ifndef WIFI_SSID
@@ -388,3 +396,40 @@ static size_t websocket_console_supply_output(uint8_t *buffer, size_t max_len, v
     (void)user_data;
     return websocket_console_tx_pop(buffer, max_len);
 }
+
+#else // ALTAIR_ENABLE_WEBSOCKET
+
+void websocket_console_start(void)
+{
+    printf("WebSocket console disabled; USB serial only.\n");
+}
+
+uint32_t websocket_console_wait_for_wifi(void)
+{
+    return 0;
+}
+
+bool websocket_console_is_running(void)
+{
+    return false;
+}
+
+bool websocket_console_get_ip(char *buffer, size_t length)
+{
+    (void)buffer;
+    (void)length;
+    return false;
+}
+
+void websocket_console_enqueue_output(uint8_t value)
+{
+    (void)value;
+}
+
+bool websocket_console_try_dequeue_input(uint8_t *value)
+{
+    (void)value;
+    return false;
+}
+
+#endif // ALTAIR_ENABLE_WEBSOCKET
