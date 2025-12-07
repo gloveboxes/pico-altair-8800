@@ -247,7 +247,8 @@ int main(void)
     // Send test output
     printf("\n\n*** USB Serial Active ***\n");
     printf("========================================\n");
-    printf("  Altair 8800 Emulator - Pico 2 W\n");
+    printf("  Altair 8800 Emulator\n");
+    printf("  Board: %s\n", PICO_BOARD);
     printf("  Build: %d (%s %s)\n", BUILD_VERSION, BUILD_DATE, BUILD_TIME);
     printf("========================================\n");
     printf("\n");
