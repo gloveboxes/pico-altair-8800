@@ -184,7 +184,7 @@ static void websocket_console_core1_entry(void)
     while (true)
     {
         cyw43_arch_poll();
-        ws_poll();
+        ws_poll(&counter);
         tight_loop_contents();
     }
 }

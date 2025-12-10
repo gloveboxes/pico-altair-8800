@@ -125,17 +125,6 @@ bool websocket_console_try_dequeue_input(uint8_t *value)
     return queue_try_remove(&ws_rx_queue, value);
 }
 
-void ws_poll(void)
-{
-    static int counter = 0;
-    ws_poll_incoming();
-    if (++counter >= 2000)
-    {
-        counter = 0;
-        ws_poll_outgoing();
-    }
-}
-
 bool websocket_console_handle_input(const uint8_t *payload, size_t payload_len, void *user_data)
 {
     (void)user_data;

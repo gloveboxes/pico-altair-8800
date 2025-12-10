@@ -20,8 +20,20 @@ bool websocket_console_is_running(void);
 // Get the IP address string (valid after Wi-Fi connects). Returns false if not ready.
 bool websocket_console_get_ip(char *buffer, size_t length);
 
+// Forward declarations for internal functions
+void ws_poll_incoming(void);
+void ws_poll_outgoing(void);
+
 // Poll the WebSocket server for incoming and outgoing messages (internal use)
-void ws_poll(void);
+static inline void ws_poll(int *counter)
+{
+    ws_poll_incoming();
+    if (++(*counter) >= 2000)
+    {
+        *counter = 0;
+        ws_poll_outgoing();
+    }
+}
 
 // Initialize WebSocket queues (internal use)
 void websocket_queue_init(void);
