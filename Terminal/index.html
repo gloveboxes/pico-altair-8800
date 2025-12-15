@@ -678,20 +678,19 @@
         try {
           const urlParams = new URLSearchParams(window.location.search);
           const hostAddress = urlParams.get('altair');
-          
+
           // Validate and sanitize host address
-          const altairAddress = hostAddress 
+          const altairAddress = hostAddress
             ? sanitizeHostAddress(hostAddress)
             : window.location.hostname || 'localhost';
 
-          // Use the same port as the page, or default to 80 if not specified
-          const port = window.location.port || '80';
+          // Fixed WebSocket port for Altair service
+          const port = '8088';
 
           return `ws://${altairAddress}:${port}`;
         } catch (error) {
           console.error("Failed to construct WebSocket URL:", error);
-          const port = window.location.port || '80';
-          return `ws://localhost:${port}`;
+          return 'ws://localhost:8088';
         }
       }
 
@@ -724,7 +723,7 @@
         // Clear the user disconnect flag when manually connecting
         state.userInitiatedDisconnect = false;
 
-        const wsUrl = getWebSocketUrl();
+          const wsUrl = getWebSocketUrl();
         const altairAddress = wsUrl.split('://')[1].split(':')[0];
         
         showMessage(`Connecting to ${altairAddress}...`);
@@ -1143,7 +1142,7 @@
     </div>
   </div>
 
-  <div id="version">3.2.1</div>
+  <div id="version">3.2.2</div>
 
 </body>
 

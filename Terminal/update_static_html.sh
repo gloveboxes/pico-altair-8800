@@ -27,8 +27,8 @@ echo "Generating ${HEADER_FILE}" && \
     printf '/* Auto-generated from Terminal/index.html */\n'
     printf '#ifndef STATIC_HTML_HEX_H\n#define STATIC_HTML_HEX_H\n\n'
     printf '#include <stddef.h>\n\n'
-    xxd -i "${GZIP_FILE}" | \
-      sed 's/_Users_dave_GitHub_pico_altair_static_html_gz/static_html_gz/g' | \
+    # xxd -n sets a stable symbol name regardless of path; keep aligned buffer and const length
+    xxd -i -n static_html_gz "${GZIP_FILE}" | \
       sed 's/unsigned char static_html_gz\[\]/static const unsigned char static_html_gz[] __attribute__((aligned(4)))/' | \
       sed 's/unsigned int static_html_gz_len/static const unsigned int static_html_gz_len/'
     printf '\n#endif /* STATIC_HTML_HEX_H */\n'
