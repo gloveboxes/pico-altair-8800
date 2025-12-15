@@ -38,6 +38,9 @@ void websocket_queue_init(void);
 // Initialize and start the WebSocket server (returns true on success)
 bool websocket_console_init_server(void);
 
+// Callback from main.c to handle client connection
+void client_connected_cb(void);
+
 // WebSocket callback functions (internal use)
 bool websocket_console_handle_input(const uint8_t *payload, size_t payload_len, void *user_data);
 size_t websocket_console_supply_output(uint8_t *buffer, size_t max_len, void *user_data);

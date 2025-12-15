@@ -197,14 +197,14 @@ bool websocket_console_handle_input(const uint8_t *payload, size_t payload_len, 
 /**
  * @brief Callback invoked when a WebSocket client connects.
  * 
- * Currently performs no operations but provides a hook for future
- * connection handling logic.
+ * Calls the client_connected_cb function to update CPU mode.
  * 
  * @param user_data User-defined context (unused)
  */
 void websocket_console_on_client_connected(void *user_data)
 {
     (void)user_data;
+    client_connected_cb();
 }
 
 /**

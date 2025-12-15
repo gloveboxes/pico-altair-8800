@@ -20,6 +20,21 @@
 // Global CPU instance
 static intel8080_t cpu;
 
+typedef enum
+{
+	CPU_RUNNING = 1,
+	CPU_STOPPED = 2,
+	CPU_LOW_POWER = 3
+} CPU_OPERATING_MODE;
+
+static volatile CPU_OPERATING_MODE cpu_mode = CPU_STOPPED;
+
+void client_connected_cb(void)
+{
+    cpu_mode = CPU_RUNNING;
+    printf("CPU mode set to RUNNING due to WebSocket client connection\n");
+}
+
 // Process character through ANSI escape sequence state machine
 static uint8_t process_ansi_sequence(uint8_t ch)
 {
@@ -344,6 +359,18 @@ int main(void)
     // Main emulation loop - core 0 dedicated to CPU emulation
     while (true)
     {
-        i8080_cycle(&cpu);
+        if (cpu_mode == CPU_RUNNING)
+        {
+            // Hot path: run many cycles before checking mode again
+            for (int i = 0; i < 1000; i++)
+            {
+                i8080_cycle(&cpu);
+            }
+        }
+        else if (cpu_mode == CPU_LOW_POWER)
+        {
+            i8080_cycle(&cpu);
+            sleep_us(1); // Brief sleep to reduce CPU usage (1000 ns)
+        }
     }
 }
