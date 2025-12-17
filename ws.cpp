@@ -17,8 +17,8 @@ namespace
     // holds an HTTP keep-alive connection open.
     static constexpr uint32_t WS_SERVER_MAX_CONNECTIONS = 8;
     static constexpr size_t WS_FRAME_PAYLOAD = 256;
-    static constexpr uint32_t WS_PING_INTERVAL_MS = 5000;
-    static constexpr uint8_t WS_MAX_MISSED_PONGS = 3;
+    static constexpr uint32_t WS_PING_INTERVAL_MS = 15000;  // 15s
+    static constexpr uint8_t WS_MAX_MISSED_PONGS = 4;       // 60s total timeout
 
     struct ws_context_t
     {
@@ -344,6 +344,7 @@ extern "C"
             {
                 // This specific client's TCP send buffer is full - they miss this frame
                 // (expected under load; real-time data, no backpressure)
+                printf("WebSocket send failed, dropping %zu bytes\n", payload_len);
             }
         }
     }
