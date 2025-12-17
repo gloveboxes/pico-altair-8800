@@ -3,6 +3,7 @@
 #include "Altair8800/pico_disk.h"
 #include "build_version.h"
 #include "comms_mgr.h"
+#include "cpu_state.h"
 #include "io_ports.h"
 #include "pico/error.h"
 #include "pico/stdlib.h"
@@ -20,19 +21,9 @@
 // Global CPU instance
 static intel8080_t cpu;
 
-typedef enum
-{
-    CPU_RUNNING = 1,
-    CPU_STOPPED = 2,
-    CPU_LOW_POWER = 3
-} CPU_OPERATING_MODE;
-
-static volatile CPU_OPERATING_MODE cpu_mode = CPU_STOPPED;
-
 void client_connected_cb(void)
 {
-    cpu_mode = CPU_RUNNING;
-    printf("CPU mode set to RUNNING due to WebSocket client connection\n");
+    cpu_state_set_mode(CPU_RUNNING);
 }
 
 // Process character through ANSI escape sequence state machine
@@ -350,7 +341,7 @@ int main(void)
     // Main emulation loop - core 0 dedicated to CPU emulation
     for (;;)
     {
-        CPU_OPERATING_MODE mode = cpu_mode;
+        CPU_OPERATING_MODE mode = cpu_state_get_mode();
         switch (mode)
         {
             case CPU_RUNNING:

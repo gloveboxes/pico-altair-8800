@@ -37,6 +37,7 @@ target_include_directories(lwipopts_provider INTERFACE ${CMAKE_CURRENT_LIST_DIR}
 
 set(ALTAIR_SOURCES
     main.c
+    cpu_state.c
     Altair8800/intel8080.c
     Altair8800/memory.c
     Altair8800/pico_disk.c
