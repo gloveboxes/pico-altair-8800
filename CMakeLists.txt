@@ -15,14 +15,22 @@ option(ALTAIR_DEBUG "Enable debug logging" OFF)
 # Pico Inky support (off by default)
 option(INKY_SUPPORT "Enable Pico Inky E-Ink display support" OFF)
 
+# Pico Display 2.8" support (off by default)
+option(DISPLAY_2_8_SUPPORT "Enable Pico Display 2.8 inch LCD support" OFF)
+
+# Ensure only one display is enabled at a time
+if(INKY_SUPPORT AND DISPLAY_2_8_SUPPORT)
+    message(FATAL_ERROR "Cannot enable both INKY_SUPPORT and DISPLAY_2_8_SUPPORT at the same time. Please choose one display type.")
+endif()
+
 # Import Pico SDK
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(altair C CXX ASM)
 pico_sdk_init()
 
-# Import Pimoroni Pico libraries if Inky support is enabled
-if(INKY_SUPPORT)
+# Import Pimoroni Pico libraries if Inky or Display 2.8 support is enabled
+if(INKY_SUPPORT OR DISPLAY_2_8_SUPPORT)
     set(PIMORONI_PICO_PATH ${CMAKE_CURRENT_LIST_DIR}/lib/pimoroni-pico)
     include(${CMAKE_CURRENT_LIST_DIR}/lib/pimoroni-pico/pimoroni_pico_import.cmake)
     # Only build the drivers and libraries we need, not examples
@@ -56,6 +64,7 @@ set(ALTAIR_SOURCES
     cpu_state.c
     FrontPanels/virtual_monitor.c
     FrontPanels/inky_display.cpp
+    FrontPanels/display_2_8.cpp
     i8080_disasm.c
     Altair8800/intel8080.c
     Altair8800/memory.c
@@ -119,6 +128,11 @@ if(INKY_SUPPORT)
     target_compile_definitions(altair PRIVATE INKY_SUPPORT=1)
 endif()
 
+# Add Display 2.8 support definition if enabled
+if(DISPLAY_2_8_SUPPORT)
+    target_compile_definitions(altair PRIVATE DISPLAY_2_8_SUPPORT=1)
+endif()
+
 # Make sure all CYW43 headers are visible and include Altair8800 directory
 target_include_directories(altair PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
@@ -160,6 +174,16 @@ if(INKY_SUPPORT)
         uc8151          # Inky display driver
         pico_graphics   # Graphics library
         button          # Button support
+    )
+endif()
+
+# Link Pimoroni Display 2.8 libraries if enabled
+if(DISPLAY_2_8_SUPPORT)
+    target_link_libraries(altair
+        st7789          # ST7789 LCD driver
+        pico_graphics   # Graphics library
+        pico_display_28 # Pico Display 2.8 board definitions
+        rgbled          # RGB LED driver
     )
 endif()
 

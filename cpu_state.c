@@ -1,6 +1,7 @@
 #include "cpu_state.h"
 #include "Altair8800/intel8080.h"
 #include "virtual_monitor.h"
+#include "FrontPanels/display_2_8.h"
 #include <stdio.h>
 #include <ctype.h>
 #include "i8080_disasm.h"
@@ -20,6 +21,9 @@ ALTAIR_COMMAND cmd_switches = NOP;
 void cpu_state_set_mode(CPU_OPERATING_MODE mode)
 {
     g_cpu_mode = mode;
+    
+    // Update Display 2.8 LED based on CPU state
+    display_2_8_set_cpu_led(mode == CPU_RUNNING);
 
 #ifdef ALTAIR_DEBUG
     // Optional: Add logging for debugging

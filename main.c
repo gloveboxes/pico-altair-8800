@@ -5,6 +5,7 @@
 #include "comms_mgr.h"
 #include "cpu_state.h"
 #include "FrontPanels/inky_display.h"
+#include "FrontPanels/display_2_8.h"
 #include "io_ports.h"
 #include "pico/error.h"
 #include "pico/stdlib.h"
@@ -239,8 +240,9 @@ int main(void)
     // Initialize stdio first
     stdio_init_all();
 
-    // Initialize Inky display early (if enabled)
+    // Initialize displays early (if enabled)
     inky_display_init();
+    display_2_8_init();
 
 #if defined(CYW43_WL_GPIO_LED_PIN)
     // Board has WiFi - check if credentials exist
@@ -379,12 +381,14 @@ int main(void)
     printf("\n");
 
 #if defined(CYW43_WL_GPIO_LED_PIN)
-    // Update Inky display with system information (if enabled)
+    // Update displays with system information (if enabled)
     const char* wifi_ssid = g_wifi_ok ? get_connected_ssid() : NULL;
     inky_display_update(wifi_ssid, g_wifi_ok ? g_ip_buffer : NULL);
+    display_2_8_update(wifi_ssid, g_wifi_ok ? g_ip_buffer : NULL);
 #else
     // No WiFi on this board
     inky_display_update(NULL, NULL);
+    display_2_8_update(NULL, NULL);
 #endif
 
     // Main emulation loop - core 0 dedicated to CPU emulation

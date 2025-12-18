@@ -190,6 +190,18 @@ cmake --version
 brew install ninja
 ```
 
+## Install Pico Tools (picotool)
+
+```shell
+brew install picotool
+```
+
+Verify installation
+
+```shell
+picotool version
+```
+
 ## Install the VS Code Pico Extension
 
 [Raspberry Pi Pico](https://marketplace.visualstudio.com/items?itemName=raspberry-pi.raspberry-pi-pico)

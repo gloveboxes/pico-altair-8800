@@ -74,6 +74,54 @@
             ]
         },
         {
+            "label": "Build and Deploy Pico (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build and Deploy Pico W (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico_w && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico_w.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build and Deploy Pico 2 (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2 && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build and Deploy Pico 2 W (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
             "label": "Build for Pico 2 W with Inky (Release)",
             "type": "shell",
             "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DINKY_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_inky.uf2",
@@ -86,9 +134,45 @@
             ]
         },
         {
+            "label": "Build for Pico 2 W with Inky (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DINKY_SUPPORT=ON -DDISPLAY_2_8_SUPPORT=OFF && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_inky.uf2",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
             "label": "Build and Deploy Pico 2 W with Inky (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DINKY_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_inky.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DINKY_SUPPORT=ON -DDISPLAY_2_8_SUPPORT=OFF && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_inky.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build for Pico 2 W with Display 2.8 (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_display28.uf2",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build and Deploy Pico 2 W with Display 2.8 (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_display28.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -100,7 +184,7 @@
         {
             "label": "Build All Boards (Release)",
             "type": "shell",
-            "command": "./build_all_boards.sh && mkdir -p Releases && cp tests/pico/altair_pico.uf2 Releases/ && cp tests/pico_w/altair_pico_w.uf2 Releases/ && cp tests/pico2/altair_pico2.uf2 Releases/ && cp tests/pico2_w/altair_pico2_w.uf2 Releases/ && cp tests/pimoroni_pico_plus2_w_rp2350/altair_pimoroni_pico_plus2_w_rp2350.uf2 Releases/ && cp tests/pico2_w_inky/altair_pico2_w_inky.uf2 Releases/",
+            "command": "./build_all_boards.sh && mkdir -p Releases && cp tests/pico/altair_pico.uf2 Releases/ && cp tests/pico_w/altair_pico_w.uf2 Releases/ && cp tests/pico2/altair_pico2.uf2 Releases/ && cp tests/pico2_w/altair_pico2_w.uf2 Releases/ && cp tests/pimoroni_pico_plus2_w_rp2350/altair_pimoroni_pico_plus2_w_rp2350.uf2 Releases/ && cp tests/pico2_w_inky/altair_pico2_w_inky.uf2 Releases/ && cp tests/pico2_display28/altair_pico2_display28.uf2 Releases/ && cp tests/pico2_w_display28/altair_pico2_w_display28.uf2 Releases/",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
