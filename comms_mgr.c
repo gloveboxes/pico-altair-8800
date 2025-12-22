@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "hardware/timer.h"
 #include "pico/stdlib.h"
 
 #include "websocket_console.h"
@@ -24,15 +25,28 @@
 #endif
 
 #define WIFI_CONNECT_TIMEOUT_MS 30000
+#define WS_OUTPUT_TIMER_INTERVAL_MS 20
 
 static void websocket_console_core1_entry(void);
 
 volatile bool console_running = false;
 volatile bool console_initialized = false;
 volatile bool wifi_connected = false;
+volatile bool pending_ws_output = false;
 
 char ip_address_buffer[32] = {0};
 static char connected_ssid[WIFI_CONFIG_SSID_MAX_LEN + 1] = {0};
+
+// Timer for periodic WebSocket output
+static struct repeating_timer ws_output_timer;
+
+// Timer callback - fires every 50ms
+static bool ws_output_timer_callback(struct repeating_timer* t)
+{
+    (void)t;
+    pending_ws_output = true;
+    return true; // Keep repeating
+}
 
 static bool wifi_init(void)
 {
@@ -103,6 +117,10 @@ void websocket_console_start(void)
 
     websocket_queue_init();
 
+    // Start the WebSocket output timer (20ms interval)
+    add_repeating_timer_ms(WS_OUTPUT_TIMER_INTERVAL_MS, ws_output_timer_callback, NULL, &ws_output_timer);
+    printf("Started WebSocket output timer (%dms interval)\n", WS_OUTPUT_TIMER_INTERVAL_MS);
+
     // Launch core 1 which will handle all Wi-Fi and WebSocket operations
     multicore_launch_core1(websocket_console_core1_entry);
     console_running = true;
@@ -166,11 +184,10 @@ static void websocket_console_core1_entry(void)
     printf("[Core1] WebSocket server running, entering poll loop\n");
 
     // Main poll loop - all CYW43/lwIP access stays on core 1
-    int counter = 0;
     while (true)
     {
         cyw43_arch_poll();
-        ws_poll(&counter);
+        ws_poll(&pending_ws_output);
         tight_loop_contents();
     }
 }

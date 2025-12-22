@@ -16,7 +16,7 @@ static constexpr uint32_t WS_MAX_CLIENTS = 2;
 // WS_MAX_CLIENTS to avoid RSTs during the WebSocket handshake when a browser
 // holds an HTTP keep-alive connection open.
 static constexpr uint32_t WS_SERVER_MAX_CONNECTIONS = 8;
-static constexpr size_t WS_FRAME_PAYLOAD = 128;
+static constexpr size_t WS_FRAME_PAYLOAD = 256;
 static constexpr uint32_t WS_PING_INTERVAL_MS = 10000; // 10s
 static constexpr uint8_t WS_MAX_MISSED_PONGS = 3;      // 30s total timeout
 
