@@ -86,7 +86,11 @@ static const uint8_t font_5x8[][5] = {
     {0x01, 0x71, 0x09, 0x05, 0x03}, // 7
     {0x36, 0x49, 0x49, 0x49, 0x36}, // 8
     {0x06, 0x49, 0x49, 0x29, 0x1E}, // 9
-    {0x00, 0x00, 0x60, 0x60, 0x00}, // . (period/dot)
+    {0x00, 0x00, 0x60, 0x60, 0x00}, // . (period/dot) - index 36
+    {0x08, 0x08, 0x08, 0x08, 0x08}, // - (hyphen) - index 37
+    {0x00, 0x00, 0x36, 0x36, 0x00}, // : (colon) - index 38
+    {0x00, 0x1C, 0x22, 0x41, 0x00}, // ( (left paren) - index 39
+    {0x00, 0x41, 0x22, 0x1C, 0x00}, // ) (right paren) - index 40
 };
 
 // Send command to display
@@ -256,14 +260,22 @@ void st7789_async_text(const char* str, int x, int y, color_t color)
         else if (c >= '0' && c <= '9')
             glyph_idx = 26 + (c - '0');
         else if (c == '.')
-            glyph_idx = 36; // Period is at index 36
+            glyph_idx = 36;
+        else if (c == '-')
+            glyph_idx = 37;
+        else if (c == ':')
+            glyph_idx = 38;
+        else if (c == '(')
+            glyph_idx = 39;
+        else if (c == ')')
+            glyph_idx = 40;
         else if (c == ' ')
         {
             x += 6;
             continue;
         }
 
-        if (glyph_idx >= 0 && glyph_idx < 37)
+        if (glyph_idx >= 0 && glyph_idx < 41)
         {
             // Draw 5x8 character (flipped horizontally)
             for (int col = 0; col < 5; col++)

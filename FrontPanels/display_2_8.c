@@ -7,6 +7,7 @@
 
 #ifdef DISPLAY_2_8_SUPPORT
 
+#include "build_version.h"
 #include "st7789_async.h"
 #include "wifi.h"
 #include <stdio.h>
@@ -119,8 +120,10 @@ void display_2_8_init_front_panel(void)
     }
 #endif
 
-    // Altair 8800 logo
-    st7789_async_text("ALTAIR 8800", 250, 20, TEXT_WHITE);
+    // Altair 8800 logo with build info
+    char title_buffer[64];
+    snprintf(title_buffer, sizeof(title_buffer), "ALTAIR 8800 (%d %s %s)", BUILD_VERSION, BUILD_DATE, BUILD_TIME);
+    st7789_async_text(title_buffer, 94, 20, TEXT_WHITE);
 
     // Send initial frame
     st7789_async_update();
