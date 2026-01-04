@@ -22,7 +22,7 @@ python3 remote_fs_server.py
 ```
 
 The server will:
-- Listen on port 8080 by default
+- Listen on port 8085 by default
 - Use the `disks/` directory (parent of RemoteFS) as the template disk source
 - Store per-client disk copies in `RemoteFS/clients/`
 
@@ -38,7 +38,7 @@ Remote File System Server for Altair 8800 Emulator
 optional arguments:
   -h, --help            show this help message and exit
   --host HOST           Host address to bind to (default: 0.0.0.0)
-  --port PORT           Port to listen on (default: 8080)
+  --port PORT           Port to listen on (default: 8085)
   --template-dir PATH   Directory containing template disk images
                         (default: ../disks)
   --clients-dir PATH    Directory for per-client disk storage
@@ -99,7 +99,7 @@ make
 
 ### Connection Refused
 - Ensure the server is running and listening on the correct port
-- Check firewall settings allow incoming connections on port 8080
+- Check firewall settings allow incoming connections on port 8085
 - Verify the Pico is on the same network and can reach the server IP
 
 ### No Disk Images Found

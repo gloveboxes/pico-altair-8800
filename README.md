@@ -196,6 +196,11 @@ Before running the server container, ensure Docker is installed on your host mac
   sudo usermod -aG docker $USER
   ```
   *(Log out and back in for the user group changes to take effect)*
+  
+  **Install Docker Compose:**
+  ```shell
+  sudo apt-get install -y docker-compose
+  ```
 
 ### Server Setup (Docker Recommended)
 1. **Using Docker Compose:**
@@ -213,7 +218,7 @@ Before running the server container, ensure Docker is installed on your host mac
 2. **Manual Python Setup:**
    Runs the server directly on your host machine.
    ```shell
-   python3 RemoteFS/remote_fs_server.py --port 8080 --template-dir disks/ --clients-dir RemoteFS/clients/
+   python3 RemoteFS/remote_fs_server.py --port 8085 --template-dir disks/ --clients-dir RemoteFS/clients/
    ```
 
 3. **Linux Service (systemd):**
@@ -228,7 +233,7 @@ The Pico W attempts to connect to the RFS server specified during the build:
 ```shell
 cmake .. -DREMOTE_FS_SUPPORT=ON \
     -DRFS_SERVER_IP="192.168.1.50" \
-    -DRFS_SERVER_PORT=8080
+    -DRFS_SERVER_PORT=8085
 ```
 
 ## Regenerate Disk Image Header

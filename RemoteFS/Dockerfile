@@ -11,9 +11,15 @@ COPY RemoteFS/remote_fs_server.py /app/
 # Copy disk templates
 COPY disks/*.dsk /app/disks/
 
-# Expose port
-EXPOSE 8080
+# Expose ports
+EXPOSE 8085 80
 
-# Run server
-# Note: volumes should be mounted at /app/clients and /app/disks
-CMD ["python3", "-u", "remote_fs_server.py", "--host", "0.0.0.0", "--port", "8080", "--clients-dir", "/app/clients", "--template-dir", "/app/disks"]
+# Install Nginx
+RUN apk add --no-cache nginx
+
+# Copy entrypoint
+COPY RemoteFS/entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh
+
+# Run via entrypoint
+CMD ["/app/entrypoint.sh"]

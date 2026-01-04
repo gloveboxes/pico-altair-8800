@@ -96,7 +96,7 @@ for BOARD in "${BOARDS[@]}"; do
     # Add Remote FS support
     if [[ "$BOARD" == *"_rfs" ]]; then
         # Default RFS server config - user can override or use default
-        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP='\"192.168.1.50\"' -DRFS_SERVER_PORT=8080"
+        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP='\"192.168.1.50\"' -DRFS_SERVER_PORT=8085"
     fi
     
     if cmake -B build $CMAKE_OPTS && \

@@ -31,7 +31,7 @@ option(REMOTE_FS_SUPPORT "Enable Remote Filesystem support over TCP" OFF)
 
 # Remote FS server configuration
 set(RFS_SERVER_IP "192.168.1.22" CACHE STRING "Remote FS server IP address")
-set(RFS_SERVER_PORT "8080" CACHE STRING "Remote FS server port")
+set(RFS_SERVER_PORT "8085" CACHE STRING "Remote FS server port")
 
 # Ensure only one display is enabled at a time
 if(INKY_SUPPORT AND DISPLAY_2_8_SUPPORT)

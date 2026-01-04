@@ -24,12 +24,16 @@ This major update introduces the **Remote File System**, allowing the Altair emu
 - **Optimized Display Refresh**: Tuned virtual front panel refresh rate to **~30Hz** (33ms) to balance CPU usage.
 
 ### Server & Docker Support
-- **Dockerized RFS Server**: Added `Dockerfile` and `docker-compose.yml` for easy deployment.
-  - Switches to `python:3.11-alpine` for a lightweight footprint (~50MB).
-  - Supports persistent client storage via bind mounts.
-  - Embeds template disk images directly into the container.
-- **Reduced Logging**: Updated `remote_fs_server.py` to use `DEBUG` level for individual sector read/write logs, reducing console noise. Connection events remain at `INFO`.
+- **Unified RFS & Web Container**:
+  - Combined **RFS Server** (Port 8085) and **Nginx Web Server** (Port 8086) into a single lightweight Alpine container (~50MB).
+  - **RFS Server**: Moved default port to **8085** to follow Intel CPU naming conventions. 8085 came after 8080.
+  - **Web Server**: Serves local `Apps/` directory with auto-indexing enabled, allowing direct file access for the emulator via `http_get`.
+- **Docker Configuration**: Updated `docker-compose.yml` and `entrypoint.sh` for multi-service support and correct Alpine Nginx paths.
+- **Reduced Logging**: Updated `remote_fs_server.py` to use `DEBUG` level for individual sector read/write logs.
 - **Systemd Service**: Added `altair-rfs.service` and `install_service.sh` for native Linux background service deployment.
+
+### Build Configuration
+- **Added `pico2_w_display28_rfs`**: New build target for Pico 2 W + 2.8" Display + Remote FS support.
 
 ---
 

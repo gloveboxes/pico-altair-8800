@@ -369,8 +369,8 @@ def main():
         help='Host address to bind to (default: 0.0.0.0)'
     )
     parser.add_argument(
-        '--port', type=int, default=8080,
-        help='Port to listen on (default: 8080)'
+        '--port', type=int, default=8085,
+        help='Port to listen on (default: 8085)'
     )
     parser.add_argument(
         '--template-dir', type=Path,

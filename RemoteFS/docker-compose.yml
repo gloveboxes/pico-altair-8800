@@ -8,11 +8,14 @@ services:
     container_name: altair-rfs
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8085:8085"
+      - "8086:80"
     volumes:
       # Persistent storage for client data (read/write)
       - ./clients:/app/clients
-    command: python3 -u remote_fs_server.py --port 8080 --clients-dir /app/clients --template-dir /app/disks
+      # Web root for Apps download
+      - ../Apps:/usr/share/nginx/html:ro
+    command: /app/entrypoint.sh
     # logging:
     #   driver: "json-file"
     #   options:
