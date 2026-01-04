@@ -14,6 +14,7 @@ This major update introduces the **Remote File System**, allowing the Altair emu
 
 ### Performance & Caching
 - **Implemented Transparent RFS Cache**: Moved sector cache from disk controller to RFS layer (`remote_fs.c`), making it transparent to upper layers.
+- **Async "Fire-and-Forget" Writes**: Write operations now return immediately after sending data, removing network round-trip latency and significantly improving write performance.
 - **Increased Cache Size**: Expanded write-through sector cache to **160KB** (~1,080 sectors), significantly improving read performance.
 - **Added Write Deduplication**: Writes are now compared against cached data; redundant network writes are skipped, reducing latency and network traffic.
 - **Cache Statistics**: Added periodic reporting (every 30s) of cache hits, misses, and write skips to the console.

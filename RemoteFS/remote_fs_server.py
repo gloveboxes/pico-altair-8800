@@ -235,7 +235,7 @@ class ClientSession:
         disk = self.disks[drive]
         success = disk.write_sector(track, sector, data)
         
-        self.conn.sendall(bytes([RESP_OK if success else RESP_ERROR]))
+        # No response sent for writes (Async/Fire-and-forget)
         
         logger.debug(f"[{self.client_ip}] WRITE: drive={drive}, track={track:02d}, sector={sector:02d}, success={success}")
 

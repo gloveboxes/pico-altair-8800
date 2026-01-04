@@ -359,13 +359,28 @@ void rfs_client_poll(void)
 
                     if (err == ERR_OK)
                     {
-                        // Success - now pop the request and set up for response
+                        // Success - remove from request queue
                         queue_try_remove(&rfs_outbound_queue, &request);
-                        client.current_request = request;
-                        client.expected_len = expected;
-                        client.request_in_progress = true;
-                        client.recv_len = 0;
-                        client.operation_start_time = to_ms_since_boot(get_absolute_time());
+
+                        if (request.op == RFS_OP_WRITE)
+                        {
+                            // Async Write: Assume success immediately (Fire-and-forget)
+                            rfs_response_t response;
+                            response.op = RFS_OP_WRITE;
+                            response.status = RFS_RESP_OK;
+                            queue_try_add(&rfs_inbound_queue, &response);
+
+                            // Don't wait for network response - ready for next request immediately
+                        }
+                        else
+                        {
+                            // Read: Must wait for response
+                            client.current_request = request;
+                            client.expected_len = expected;
+                            client.request_in_progress = true;
+                            client.recv_len = 0;
+                            client.operation_start_time = to_ms_since_boot(get_absolute_time());
+                        }
                     }
                     else if (err == ERR_MEM)
                     {
