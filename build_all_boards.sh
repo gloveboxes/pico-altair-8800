@@ -32,7 +32,7 @@ echo ""
 
 # Array of boards to test
 # Note: Display 2.8 and large patch pool require RP2350 (520KB RAM) - pico/pico_w only have 264KB
-BOARDS=("pico" "pico2" "pico2_w" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28" "pimoroni_pico_plus2_w_rp2350_waveshare35_sd" "pico2_w_inky" "pico2_display28" "pico2_w_display28")
+BOARDS=("pico" "pico2" "pico2_w" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28" "pimoroni_pico_plus2_w_rp2350_waveshare35_sd" "pico2_w_inky" "pico2_display28" "pico2_w_display28" "pico2_w_display28_rfs")
 
 # Create tests directory
 TESTS_DIR="${SCRIPT_DIR}/tests"
@@ -68,6 +68,7 @@ for BOARD in "${BOARDS[@]}"; do
     CLEAN_BOARD="${BOARD//_inky/}"
     CLEAN_BOARD="${CLEAN_BOARD//_display28/}"
     CLEAN_BOARD="${CLEAN_BOARD//_waveshare35_sd/}"
+    CLEAN_BOARD="${CLEAN_BOARD//_rfs/}"
     CLEAN_BOARD="${CLEAN_BOARD//_sd/}"
     CMAKE_OPTS="-DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=${CLEAN_BOARD} -DSKIP_VERSION_INCREMENT=1"
     
@@ -90,6 +91,12 @@ for BOARD in "${BOARDS[@]}"; do
         CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=ON"
     else
         CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=OFF"
+    fi
+    
+    # Add Remote FS support
+    if [[ "$BOARD" == *"_rfs" ]]; then
+        # Default RFS server config - user can override or use default
+        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP='\"192.168.1.50\"' -DRFS_SERVER_PORT=8080"
     fi
     
     if cmake -B build $CMAKE_OPTS && \

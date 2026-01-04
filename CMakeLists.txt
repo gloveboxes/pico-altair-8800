@@ -26,6 +26,13 @@ option(SD_CARD_SUPPORT "Enable SD Card support" OFF)
 # This display uses spi1 with different pins than Pimoroni displays
 option(WAVESHARE_3_5_DISPLAY "Enable Waveshare 3.5 inch LCD support (uses spi1)" OFF)
 
+# Remote FS support (off by default) - mutually exclusive with SD_CARD_SUPPORT
+option(REMOTE_FS_SUPPORT "Enable Remote Filesystem support over TCP" OFF)
+
+# Remote FS server configuration
+set(RFS_SERVER_IP "192.168.1.22" CACHE STRING "Remote FS server IP address")
+set(RFS_SERVER_PORT "8080" CACHE STRING "Remote FS server port")
+
 # Ensure only one display is enabled at a time
 if(INKY_SUPPORT AND DISPLAY_2_8_SUPPORT)
     message(FATAL_ERROR "Cannot enable both INKY_SUPPORT and DISPLAY_2_8_SUPPORT at the same time. Please choose one display type.")
@@ -39,6 +46,11 @@ if(SD_CARD_SUPPORT AND DISPLAY_2_8_SUPPORT AND NOT WAVESHARE_3_5_DISPLAY)
     message(WARNING "    This configuration will NOT work correctly.")
     message(WARNING "    Choose either SD card OR Display 2.8, not both.")
     message(FATAL_ERROR "Cannot enable both SD_CARD_SUPPORT and DISPLAY_2_8_SUPPORT due to pin conflict on GPIO 16.")
+endif()
+
+# Ensure REMOTE_FS_SUPPORT and SD_CARD_SUPPORT are mutually exclusive
+if(REMOTE_FS_SUPPORT AND SD_CARD_SUPPORT)
+    message(FATAL_ERROR "Cannot enable both REMOTE_FS_SUPPORT and SD_CARD_SUPPORT at the same time. Please choose one disk source.")
 endif()
 
 # Import Pico SDK
@@ -113,8 +125,13 @@ if(DISPLAY_2_8_SUPPORT)
 endif()
 
 
-# Conditionally add disk controller based on SD card support
-if(SD_CARD_SUPPORT)
+# Conditionally add disk controller based on storage backend
+if(REMOTE_FS_SUPPORT)
+    list(APPEND ALTAIR_SOURCES 
+        Altair8800/remote_fs.c
+        Altair8800/pico_88dcdd_remote_fs.c
+    )
+elseif(SD_CARD_SUPPORT)
     list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card.c)
 else()
     list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_flash.c)
@@ -199,6 +216,15 @@ endif()
 
 if(WAVESHARE_3_5_DISPLAY)
     target_compile_definitions(altair PRIVATE WAVESHARE_3_5_DISPLAY=1)
+endif()
+
+if(REMOTE_FS_SUPPORT)
+    target_compile_definitions(altair PRIVATE 
+        REMOTE_FS_SUPPORT=1
+        RFS_SERVER_IP="${RFS_SERVER_IP}"
+        RFS_SERVER_PORT=${RFS_SERVER_PORT}
+    )
+    message(STATUS "🌐 Remote FS enabled - Server: ${RFS_SERVER_IP}:${RFS_SERVER_PORT}")
 endif()
 
 # Make sure all CYW43 headers are visible and include Altair8800 directory

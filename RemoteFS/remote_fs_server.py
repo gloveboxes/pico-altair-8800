@@ -24,6 +24,7 @@ import struct
 import threading
 import argparse
 import logging
+import mmap
 from pathlib import Path
 
 # Protocol constants
@@ -55,28 +56,55 @@ logger = logging.getLogger(__name__)
 
 
 class DiskImage:
-    """Represents a single disk image file"""
+    """Represents a single disk image file with memory-mapped I/O for performance"""
     
     def __init__(self, filepath: Path):
         self.filepath = filepath
         self.lock = threading.Lock()
+        self._file = None
+        self._mmap = None
+        self._open()
+    
+    def _open(self):
+        """Open the file and create memory mapping"""
+        try:
+            # Ensure file exists and is the right size
+            if not self.filepath.exists():
+                with open(self.filepath, 'wb') as f:
+                    f.write(bytes(DISK_SIZE))
+            
+            # Open file for read/write
+            self._file = open(self.filepath, 'r+b')
+            self._mmap = mmap.mmap(self._file.fileno(), DISK_SIZE)
+            logger.debug(f"Opened disk image: {self.filepath}")
+        except Exception as e:
+            logger.error(f"Failed to open disk image {self.filepath}: {e}")
+            self._mmap = None
+            self._file = None
+    
+    def close(self):
+        """Close the memory mapping and file"""
+        if self._mmap:
+            self._mmap.close()
+            self._mmap = None
+        if self._file:
+            self._file.close()
+            self._file = None
         
     def read_sector(self, track: int, sector: int) -> bytes:
         """Read a sector from the disk image"""
         if track >= MAX_TRACKS or sector >= SECTORS_PER_TRACK:
             logger.warning(f"Invalid sector address: track={track}, sector={sector}")
             return bytes(SECTOR_SIZE)
+        
+        if not self._mmap:
+            return bytes(SECTOR_SIZE)
             
         offset = track * TRACK_SIZE + sector * SECTOR_SIZE
         
         with self.lock:
             try:
-                with open(self.filepath, 'rb') as f:
-                    f.seek(offset)
-                    data = f.read(SECTOR_SIZE)
-                    if len(data) < SECTOR_SIZE:
-                        data = data + bytes(SECTOR_SIZE - len(data))
-                    return data
+                return self._mmap[offset:offset + SECTOR_SIZE]
             except Exception as e:
                 logger.error(f"Error reading sector: {e}")
                 return bytes(SECTOR_SIZE)
@@ -90,15 +118,16 @@ class DiskImage:
         if len(data) != SECTOR_SIZE:
             logger.warning(f"Invalid sector data size: {len(data)}")
             return False
+        
+        if not self._mmap:
+            return False
             
         offset = track * TRACK_SIZE + sector * SECTOR_SIZE
         
         with self.lock:
             try:
-                with open(self.filepath, 'r+b') as f:
-                    f.seek(offset)
-                    f.write(data)
-                    f.flush()
+                self._mmap[offset:offset + SECTOR_SIZE] = data
+                self._mmap.flush()  # Sync to disk
                 return True
             except Exception as e:
                 logger.error(f"Error writing sector: {e}")
@@ -183,7 +212,7 @@ class ClientSession:
         response = bytes([RESP_OK]) + data
         self.conn.sendall(response)
         
-        logger.info(f"[{self.client_ip}] READ:  drive={drive}, track={track:02d}, sector={sector:02d}")
+        logger.debug(f"[{self.client_ip}] READ:  drive={drive}, track={track:02d}, sector={sector:02d}")
     
     def _handle_write_sector(self):
         """Handle WRITE_SECTOR command"""
@@ -208,7 +237,7 @@ class ClientSession:
         
         self.conn.sendall(bytes([RESP_OK if success else RESP_ERROR]))
         
-        logger.info(f"[{self.client_ip}] WRITE: drive={drive}, track={track:02d}, sector={sector:02d}, success={success}")
+        logger.debug(f"[{self.client_ip}] WRITE: drive={drive}, track={track:02d}, sector={sector:02d}, success={success}")
 
 
 class RemoteFSServer:
@@ -304,6 +333,9 @@ class RemoteFSServer:
                 try:
                     conn, addr = self.server_socket.accept()
                     client_ip = addr[0]
+                    
+                    # Disable Nagle's algorithm for lower latency
+                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     
                     # Get or create disk images for this client
                     disks = self._get_client_disks(client_ip)

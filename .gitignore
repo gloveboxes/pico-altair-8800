@@ -3,6 +3,7 @@ build/
 tests/
 .cache/
 context/
+RemoteFS/clients
 
 # CMake
 CMakeLists.txt.user

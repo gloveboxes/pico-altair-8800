@@ -143,6 +143,94 @@ cmake -B build -DPICO_BOARD=pico2 [...other flags...]
 | `-DPICO_BOARD=pico2_w` | pico2_w | Selects the Pico variant (e.g., `pico2`, `pico2_w`, `pico`, `pico_w`). WebSockets are automatically enabled for WiFi-capable boards. |
 | `-DCMAKE_BUILD_TYPE=Release` | Debug | Usual CMake switch for optimized builds (recommended). |
 
+## Remote File System (RFS) Support
+
+### Overview
+This emulator can boot CP/M from disk images stored on a remote server over WiFi, eliminating the need for an SD card. This is useful for boards without SD slots or for centralized disk management.
+
+### Architecture
+The implementation uses a split-core design to maintain high-performance emulation while handling network latency:
+
+```mermaid
+graph LR
+    subgraph "Pico Core 0 (Emulator)"
+        CPU[Intel 8080 CPU]
+        DC[Disk Controller<br/>pico_88dcdd_remote_fs]
+        Q_REQ[Request Queue]
+    end
+
+    subgraph "Pico Core 1 (Network)"
+        Q_RESP[Response Queue]
+        RFS[RFS Client<br/>remote_fs.c]
+        LWIP[lwIP TCP Stack]
+    end
+
+    subgraph "Host PC"
+        SERVER[Python Server<br/>remote_fs_server.py]
+        IMG[Disk Images<br/>.dsk files]
+    end
+
+    CPU -->|I/O Requests| DC
+    DC -->|Enqueue| Q_REQ
+    Q_REQ -->|Dequeue| RFS
+    RFS <-->|TCP/IP| LWIP
+    LWIP <-->|WiFi| SERVER
+    SERVER <-->|Read/Write| IMG
+    RFS -->|Enqueue| Q_RESP
+    Q_RESP -->|Dequeue| DC
+    DC -->|Status/Data| CPU
+```
+
+### Prerequisites: Installing Docker
+
+Before running the server container, ensure Docker is installed on your host machine:
+
+- **macOS / Windows**:
+  Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+- **Linux (Raspberry Pi / Ubuntu)**:
+  Use the convenience script to install Docker Engine:
+  ```shell
+  curl -fsSL https://get.docker.com -o get-docker.sh
+  sudo sh get-docker.sh
+  sudo usermod -aG docker $USER
+  ```
+  *(Log out and back in for the user group changes to take effect)*
+
+### Server Setup (Docker Recommended)
+1. **Using Docker Compose:**
+   The easiest way to run the RFS server is using Docker. This creates a self-contained environment with persistent storage for client disk images.
+
+   ```shell
+   cd RemoteFS
+   docker-compose up -d
+   ```
+
+   - **Persistent Storage:** Client disk images are stored in `RemoteFS/clients/`.
+   - **Templates:** The server uses `disks/*.dsk` as templates for new clients.
+   - **Logs:** View logs with `docker-compose logs -f`.
+
+2. **Manual Python Setup:**
+   Runs the server directly on your host machine.
+   ```shell
+   python3 RemoteFS/remote_fs_server.py --port 8080 --template-dir disks/ --clients-dir RemoteFS/clients/
+   ```
+
+3. **Linux Service (systemd):**
+   Install the server as a background service on Raspberry Pi / Linux.
+   ```shell
+   cd RemoteFS
+   sudo ./install_service.sh
+   ```
+
+### Client Configuration
+The Pico W attempts to connect to the RFS server specified during the build:
+```shell
+cmake .. -DREMOTE_FS_SUPPORT=ON \
+    -DRFS_SERVER_IP="192.168.1.50" \
+    -DRFS_SERVER_PORT=8080
+```
+
 ## Regenerate Disk Image Header
 
 1. Copy the .dsk file to the disks folder

@@ -21,6 +21,10 @@
 #include "wifi_config.h"
 #include "ws.h"
 
+#if defined(REMOTE_FS_SUPPORT)
+#include "Altair8800/remote_fs.h"
+#endif
+
 #ifndef WIFI_AUTH
 #define WIFI_AUTH CYW43_AUTH_WPA2_AES_PSK
 #endif
@@ -211,6 +215,9 @@ static void websocket_console_core1_entry(void)
         cyw43_arch_poll();
         ws_poll(&pending_ws_input, &pending_ws_output);
         http_poll(); // Poll for HTTP file transfer requests
+#if defined(REMOTE_FS_SUPPORT)
+        rfs_client_poll(); // Poll remote FS client
+#endif
         tight_loop_contents();
     }
 }

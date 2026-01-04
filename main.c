@@ -1,10 +1,13 @@
 #include "Altair8800/intel8080.h"
 #include "Altair8800/memory.h"
-#ifdef SD_CARD_SUPPORT
+#if defined(SD_CARD_SUPPORT)
 #include "Altair8800/pico_88dcdd_sd_card.h"
 #include "diskio.h"
 #include "drivers/sdcard/sdcard.h"
 #include "ff.h"
+#elif defined(REMOTE_FS_SUPPORT)
+#include "Altair8800/pico_88dcdd_remote_fs.h"
+#include "Altair8800/remote_fs.h"
 #else
 #include "Altair8800/pico_88dcdd_flash.h"
 #endif
@@ -25,7 +28,7 @@
 #define ASCII_MASK_7BIT 0x7F
 #define CTRL_KEY(ch) ((ch) & 0x1F)
 
-#ifndef SD_CARD_SUPPORT
+#if !defined(SD_CARD_SUPPORT) && !defined(REMOTE_FS_SUPPORT)
 // Include the CPM disk image (only for embedded XIP disk controller)
 #include "Disks/bdsc_v1_60_disk.h"
 #include "Disks/cpm63k_disk.h"
@@ -221,6 +224,11 @@ static void setup_wifi(void)
         }
     }
 
+#if defined(REMOTE_FS_SUPPORT)
+    // Initialize remote FS client queues BEFORE Core 1 starts polling
+    rfs_client_init();
+#endif
+
     // Launch network task on core 1 (handles Wi-Fi init, WebSocket server, polling)
     websocket_console_start();
 
@@ -249,7 +257,7 @@ static void setup_wifi(void)
 // Global flag set by timer callback every 20ms
 static volatile bool display_update_pending = false;
 
-// Timer callback - fires every 20ms (50 Hz)
+// Timer callback - fires every 33ms (~30 Hz)
 static bool display_timer_callback(struct repeating_timer* t)
 {
     display_update_pending = true;
@@ -275,6 +283,14 @@ int main(void)
 {
     // Initialize stdio first
     stdio_init_all();
+
+    // Disable stdout buffering - critical for seeing debug output before crashes
+    // setvbuf(stdout, NULL, _IONBF, 0);
+
+    printf("=== BOOT START ===\n");
+#if defined(REMOTE_FS_SUPPORT)
+    printf("=== REMOTE_FS_SUPPORT is defined ===\n");
+#endif
 
     // Initialize displays early (if enabled)
     inky_display_init();
@@ -341,8 +357,10 @@ int main(void)
 
     // Initialize disk controller
     printf("Initializing disk controller...\n");
-#ifdef SD_CARD_SUPPORT
+#if defined(SD_CARD_SUPPORT)
     sd_disk_init();
+#elif defined(REMOTE_FS_SUPPORT)
+    rfs_disk_init();
 #else
     pico_disk_init();
 #endif
@@ -421,6 +439,19 @@ int main(void)
         printf("DISK_D initialization failed!\n");
         return -1;
     }
+#elif defined(REMOTE_FS_SUPPORT)
+    // Connect to remote FS server
+    printf(">>> REMOTE_FS: About to connect...\n");
+    fflush(stdout);
+    if (!rfs_disk_connect())
+    {
+        printf("Failed to connect to remote FS server!\n");
+        printf("Ensure remote_fs_server.py is running on the network.\n");
+        fflush(stdout);
+        return -1;
+    }
+    printf("Remote FS connected - all disks available from server.\n");
+    fflush(stdout);
 #else
     // Load CPM disk image into drive 0 (DISK_A)
     printf("Opening DISK_A: cpm63k.dsk (embedded)\n");
@@ -452,13 +483,20 @@ int main(void)
     loadDiskLoader(0xFF00);
 
     // Set up disk controller structure for CPU
-#ifdef SD_CARD_SUPPORT
+#if defined(SD_CARD_SUPPORT)
     static disk_controller_t disk_controller = {.disk_select = (port_out)sd_disk_select,
                                                 .disk_status = (port_in)sd_disk_status,
                                                 .disk_function = (port_out)sd_disk_function,
                                                 .sector = (port_in)sd_disk_sector,
                                                 .write = (port_out)sd_disk_write,
                                                 .read = (port_in)sd_disk_read};
+#elif defined(REMOTE_FS_SUPPORT)
+    static disk_controller_t disk_controller = {.disk_select = (port_out)rfs_disk_select,
+                                                .disk_status = (port_in)rfs_disk_status,
+                                                .disk_function = (port_out)rfs_disk_function,
+                                                .sector = (port_in)rfs_disk_sector,
+                                                .write = (port_out)rfs_disk_write,
+                                                .read = (port_in)rfs_disk_read};
 #else
     static disk_controller_t disk_controller = {.disk_select = (port_out)pico_disk_select,
                                                 .disk_status = (port_in)pico_disk_status,
@@ -527,13 +565,14 @@ int main(void)
     printf("\n*** Virtual Front Panel (Core 0 Enabled - Polling) ***\n");
     display_2_8_init_front_panel();
 
-    // Start hardware timer for display updates (20ms = 50 Hz)
+    // Start hardware timer for display updates (33ms = ~30 Hz)
     static struct repeating_timer display_timer;
-    add_repeating_timer_ms(-20, display_timer_callback, NULL, &display_timer);
-    printf("Display update timer started (50 Hz)\n");
+    add_repeating_timer_ms(-33, display_timer_callback, NULL, &display_timer);
+    printf("Display update timer started (~30 Hz)\n");
 #endif
     // ============================================
 
+    // Main emulation loop - core 0 dedicated to CPU emulation
     // Main emulation loop - core 0 dedicated to CPU emulation
     for (;;)
     {

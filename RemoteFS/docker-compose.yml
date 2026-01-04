@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  altair-rfs:
+    build:
+      context: ..
+      dockerfile: RemoteFS/Dockerfile
+    container_name: altair-rfs
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persistent storage for client data (read/write)
+      - ./clients:/app/clients
+    command: python3 -u remote_fs_server.py --port 8080 --clients-dir /app/clients --template-dir /app/disks
+    # logging:
+    #   driver: "json-file"
+    #   options:
+    #     max-size: "10m"
+    #     max-file: "3"
