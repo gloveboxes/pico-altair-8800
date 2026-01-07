@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "config.h"
 #include "lwip/dns.h"
 #include "lwip/err.h"
 #include "lwip/pbuf.h"
@@ -15,22 +16,18 @@
 #include "pico/cyw43_arch.h"
 #include "pico/util/queue.h"
 
-// Server configuration (set via CMake)
-#ifndef RFS_SERVER_IP
-#define RFS_SERVER_IP "192.168.1.22"
-#endif
-
+// Server port (IP is configured via config module at runtime)
 #ifndef RFS_SERVER_PORT
 #define RFS_SERVER_PORT 8085
 #endif
 
 // Cache configuration
 #if defined(PICO_RP2040)
-// Pico W has 264KB RAM - 60KB cache (~400 sectors)
-#define RFS_CACHE_SIZE_BYTES (60 * 1024)
+// Pico W has 264KB RAM - 50KB cache (~400 sectors)
+#define RFS_CACHE_SIZE_BYTES (50 * 1024)
 #else
-// RP2350 (Pico 2 W) has 520KB RAM - we can afford a large 160KB cache (~1,170 sectors)
-#define RFS_CACHE_SIZE_BYTES (160 * 1024)
+// RP2350 (Pico 2 W) has 520KB RAM - we can afford a large 150KB cache (~1,170 sectors)
+#define RFS_CACHE_SIZE_BYTES (150 * 1024)
 #endif
 
 // Queue sizes
@@ -432,11 +429,20 @@ void rfs_client_poll(void)
 
 static void rfs_start_connect(void)
 {
-    printf("[RFS] Connecting to %s:%d\n", RFS_SERVER_IP, RFS_SERVER_PORT);
+    const char* server_ip = config_get_rfs_ip();
+
+    // Check if RFS IP is configured
+    if (server_ip[0] == '\0')
+    {
+        rfs_set_error("RFS server IP not configured - use serial console to configure");
+        return;
+    }
+
+    printf("[RFS] Connecting to %s:%d\n", server_ip, RFS_SERVER_PORT);
 
     // Parse IP address
     ip_addr_t server_addr;
-    if (!ip4addr_aton(RFS_SERVER_IP, &server_addr))
+    if (!ip4addr_aton(server_ip, &server_addr))
     {
         rfs_set_error("Invalid server IP address");
         return;

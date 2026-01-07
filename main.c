@@ -15,12 +15,12 @@
 #include "FrontPanels/inky_display.h"
 #include "build_version.h"
 #include "comms_mgr.h"
+#include "config.h"
 #include "cpu_state.h"
 #include "hardware/timer.h"
 #include "io_ports.h"
 #include "pico/error.h"
 #include "pico/stdlib.h"
-#include "wifi_config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -199,7 +199,7 @@ static void setup_wifi(void)
 
     // Determine timeout based on whether credentials exist
     uint32_t config_timeout;
-    if (wifi_config_exists())
+    if (config_exists())
     {
         printf("\nWiFi credentials found in flash storage.\n");
         config_timeout = 5000; // 5 seconds if credentials exist
@@ -211,10 +211,10 @@ static void setup_wifi(void)
     }
 
     // Give user the option to configure/update WiFi
-    if (!wifi_config_prompt_and_save(config_timeout))
+    if (!config_prompt_and_save(config_timeout))
     {
         // User didn't configure, use existing credentials if available
-        if (wifi_config_exists())
+        if (config_exists())
         {
             printf("Using stored WiFi credentials\n");
         }
@@ -298,9 +298,9 @@ int main(void)
 
 #if defined(CYW43_WL_GPIO_LED_PIN)
     // Board has WiFi - check if credentials exist
-    wifi_config_init();
+    config_init();
 
-    if (!wifi_config_exists())
+    if (!config_exists())
     {
         // No credentials - wait for USB serial connection so user sees WiFi config prompt
         while (!stdio_usb_connected())

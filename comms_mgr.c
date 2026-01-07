@@ -12,6 +12,7 @@
 // Enable WiFi/WebSocket functionality only if board has WiFi capability
 #if defined(CYW43_WL_GPIO_LED_PIN)
 
+#include "config.h"
 #include "cyw43.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
@@ -19,7 +20,6 @@
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "wifi.h"
-#include "wifi_config.h"
 #include "ws.h"
 
 #if defined(REMOTE_FS_SUPPORT)
@@ -43,7 +43,7 @@ volatile bool pending_ws_output = false;
 volatile bool pending_ws_input = false;
 
 char ip_address_buffer[32] = {0};
-static char connected_ssid[WIFI_CONFIG_SSID_MAX_LEN + 1] = {0};
+static char connected_ssid[CONFIG_SSID_MAX_LEN + 1] = {0};
 
 // Timer for periodic WebSocket output
 static struct repeating_timer ws_output_timer;
@@ -103,9 +103,9 @@ static bool wifi_init(void)
     cyw43_arch_enable_sta_mode();
 
     // Load credentials from flash storage
-    char ssid[WIFI_CONFIG_SSID_MAX_LEN + 1] = {0};
-    char password[WIFI_CONFIG_PASSWORD_MAX_LEN + 1] = {0};
-    bool credentials_loaded = wifi_config_load(ssid, sizeof(ssid), password, sizeof(password));
+    char ssid[CONFIG_SSID_MAX_LEN + 1] = {0};
+    char password[CONFIG_PASSWORD_MAX_LEN + 1] = {0};
+    bool credentials_loaded = config_load_wifi(ssid, sizeof(ssid), password, sizeof(password));
 
     // Check if credentials were loaded successfully
     if (!credentials_loaded || ssid[0] == '\0')

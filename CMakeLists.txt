@@ -29,8 +29,7 @@ option(WAVESHARE_3_5_DISPLAY "Enable Waveshare 3.5 inch LCD support (uses spi1)"
 # Remote FS support (off by default) - mutually exclusive with SD_CARD_SUPPORT
 option(REMOTE_FS_SUPPORT "Enable Remote Filesystem support over TCP" OFF)
 
-# Remote FS server configuration
-set(RFS_SERVER_IP "192.168.1.151" CACHE STRING "Remote FS server IP address")
+# Remote FS server port (IP address is configured at runtime via flash storage)
 set(RFS_SERVER_PORT "8085" CACHE STRING "Remote FS server port")
 
 # Ensure only one display is enabled at a time
@@ -113,7 +112,7 @@ set(ALTAIR_SOURCES
     PortDrivers/http_io.c
     PortDrivers/http_get.c
     websocket_console.c
-    wifi_config.c
+    config.c
     comms_mgr.c
 )
 
@@ -222,10 +221,9 @@ endif()
 if(REMOTE_FS_SUPPORT)
     target_compile_definitions(altair PRIVATE 
         REMOTE_FS_SUPPORT=1
-        RFS_SERVER_IP=\"${RFS_SERVER_IP}\"
         RFS_SERVER_PORT=${RFS_SERVER_PORT}
     )
-    message(STATUS "🌐 Remote FS enabled - Server: ${RFS_SERVER_IP}:${RFS_SERVER_PORT}")
+    message(STATUS "🌐 Remote FS enabled - Server port: ${RFS_SERVER_PORT} (IP configured at runtime)")
 endif()
 
 # Make sure all CYW43 headers are visible and include Altair8800 directory

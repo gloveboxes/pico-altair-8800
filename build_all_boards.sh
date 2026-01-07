@@ -99,8 +99,8 @@ for BOARD in "${BOARDS[@]}"; do
     
     # Add Remote FS support (Explicit _rfs suffix OR any pico_w variant)
     if [[ "$BOARD" == *"_rfs" ]] || [[ "$BOARD" == "pico_w" ]] || [[ "$BOARD" == "pico_w_inky" ]]; then
-        # Default RFS server config - user can override or use default
-        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP=192.168.1.151 -DRFS_SERVER_PORT=8085"
+        # IP address is configured at runtime via flash storage (serial console prompt)
+        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_PORT=8085"
     fi
     
     if cmake -B build $CMAKE_OPTS && \

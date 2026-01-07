@@ -1,3 +1,43 @@
+# Changelog - Build 862 (2026-01-08)
+
+## ⚙️ Generic Configuration Module
+
+Refactored WiFi configuration into a generic configuration system that stores multiple settings in flash.
+
+### Breaking Change
+- **New Flash Format**: Configuration data now uses magic number `0x43464730` ("CFG0") instead of `0x57494649` ("WIFI"). Existing stored credentials will need to be re-entered on first boot.
+
+### New Features
+- **Runtime RFS Server IP**: Remote FS server IP address is now configured at runtime via the serial console prompt, no longer hardcoded at compile time.
+- **Extended Configuration Prompt**: Boot prompts now request WiFi SSID, password, **and** RFS server IP address.
+- **Cached IP Access**: Added `config_get_rfs_ip()` for fast runtime access to stored server IP.
+
+### Files Changed
+- **Renamed**: `wifi_config.c` → `config.c`, `wifi_config.h` → `config.h`
+- **Updated**: `remote_fs.c` now uses `config_get_rfs_ip()` instead of compile-time macro
+- **Updated**: `CMakeLists.txt` removed `RFS_SERVER_IP` variable and compile definition
+- **Updated**: `build_all_boards.sh` removed hardcoded `-DRFS_SERVER_IP=...` parameter
+
+---
+
+# Changelog - Build 856 (2026-01-07)
+
+## 📊 New Diagnostics Tool: `pico.com`
+- **New App**: Created a standalone command-line tool `Apps/PICO/PICO.C` (compiles to `pico.com`) providing instant system insights.
+- **Features**: Displays Emulator Version, System Uptime (hh:mm), lwIP Network Statistics, and Remote FS Performance.
+- **Build Script**: Added `Apps/PICO/PICO.SUB` for easy compilation on the emulator.
+
+## 📈 Stats Display & Telemetry
+- **RFS Stats Categorization**: Separated Remote FS cache statistics into a dedicated section in `ONBOARD.C` for better readability.
+- **32-bit Counter**: Upgraded the main loop counter in `ONBOARD.C` to a 32-bit long integer to investigate and prevent 16-bit overflow issues during long-running tests.
+- **Uptime Reporting**: Implemented port-based uptime reporting (Seconds and Format) for client applications.
+
+## 🛠 Build System & Compatibility
+- **RFS Build Target**: Updated `build_all_boards.sh` to change `pico2_w` to `pico2_w_rfs`, ensuring the Pico 2 W build includes Remote FS support by default.
+- **Conditional Compilation**: Fixed `stats_io.c` to properly handle non-WiFi and non-RFS build configurations, resolving link errors for standard Pico targets.
+
+---
+
 # Changelog - Build 742 (2026-01-05)
 
 ## 📡 Remote File System (RFS) & Memory Stability
