@@ -32,7 +32,7 @@ echo ""
 
 # Array of boards to test
 # Note: Display 2.8 and large patch pool require RP2350 (520KB RAM) - pico/pico_w only have 264KB
-BOARDS=("pico" "pico2" "pico2_w" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28_rfs" "pico2_w_display28_rfs" "pico2_w_inky_rfs" "pico_w" "pico_w_inky")
+BOARDS=("pico" "pico2" "pico2_w_rfs" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28_rfs" "pico2_w_display28_rfs" "pico2_w_inky_rfs" "pico_w" "pico_w_inky")
 
 # Create tests directory (clean slate)
 TESTS_DIR="${SCRIPT_DIR}/tests"
@@ -100,7 +100,7 @@ for BOARD in "${BOARDS[@]}"; do
     # Add Remote FS support (Explicit _rfs suffix OR any pico_w variant)
     if [[ "$BOARD" == *"_rfs" ]] || [[ "$BOARD" == "pico_w" ]] || [[ "$BOARD" == "pico_w_inky" ]]; then
         # Default RFS server config - user can override or use default
-        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP=192.168.1.50 -DRFS_SERVER_PORT=8085"
+        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP=192.168.1.151 -DRFS_SERVER_PORT=8085"
     fi
     
     if cmake -B build $CMAKE_OPTS && \

@@ -49,9 +49,10 @@
 #define DHCP_DOES_ARP_CHECK 0       // Disable ARP check on offered DHCP address
 #define LWIP_DHCP_DOES_ACD_CHECK 0  // Disable Address Conflict Detection
 
+#define LWIP_STATS 1 // Enable statistics collection (always enabled for monitoring)
+
 #ifndef NDEBUG
 #define LWIP_DEBUG 1         // Enable debug output in debug builds
-#define LWIP_STATS 1         // Enable statistics collection in debug builds
 #define LWIP_STATS_DISPLAY 1 // Enable statistics display in debug builds
 #endif
 

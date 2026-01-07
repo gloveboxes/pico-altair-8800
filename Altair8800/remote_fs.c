@@ -838,6 +838,16 @@ bool rfs_request_pending(void)
     return client.request_in_progress || !queue_is_empty(&rfs_outbound_queue);
 }
 
+void rfs_get_cache_stats(uint32_t* hits, uint32_t* misses, uint32_t* write_skips)
+{
+    if (hits)
+        *hits = rfs_cache_hits;
+    if (misses)
+        *misses = rfs_cache_misses;
+    if (write_skips)
+        *write_skips = rfs_cache_write_skips;
+}
+
 #else // !CYW43_WL_GPIO_LED_PIN - Stub implementations for non-WiFi boards
 
 void rfs_client_init(void) {}
@@ -877,6 +887,16 @@ bool rfs_get_response(rfs_response_t* response)
 bool rfs_request_pending(void)
 {
     return false;
+}
+
+void rfs_get_cache_stats(uint32_t* hits, uint32_t* misses, uint32_t* write_skips)
+{
+    if (hits)
+        *hits = 0;
+    if (misses)
+        *misses = 0;
+    if (write_skips)
+        *write_skips = 0;
 }
 
 #endif // CYW43_WL_GPIO_LED_PIN

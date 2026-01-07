@@ -1,0 +1,8 @@
+gf -f pico/pico.c
+
+cc pico
+clink pico long
+
+a:pip a:pico.com=pico.com
+
+era pico.*

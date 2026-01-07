@@ -141,4 +141,12 @@ bool rfs_get_response(rfs_response_t* response);
  */
 bool rfs_request_pending(void);
 
+/**
+ * Get cache statistics
+ * @param hits Pointer to receive hit count (can be NULL)
+ * @param misses Pointer to receive miss count (can be NULL)
+ * @param write_skips Pointer to receive write skip count (can be NULL)
+ */
+void rfs_get_cache_stats(uint32_t* hits, uint32_t* misses, uint32_t* write_skips);
+
 #endif // _REMOTE_FS_H_
