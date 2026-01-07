@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "pico/mutex.h"      // For mutex_t
+#include "pico/util/queue.h" // For queue_t
+
 #include "lwip/altcp.h"
 #include "lwip/apps/http_client.h"
 #include "lwip/dns.h"
@@ -18,7 +21,7 @@
 
 // Queue sizes
 #define OUTBOUND_QUEUE_SIZE 4
-#define INBOUND_QUEUE_SIZE 2 // Small queue creates TCP backpressure
+#define INBOUND_QUEUE_SIZE 8 // Increased to 8 to cover small file bursts (2KB)
 
 // Queues for inter-core communication
 static queue_t outbound_queue; // Core 0 -> Core 1
@@ -26,6 +29,9 @@ static queue_t inbound_queue;  // Core 1 -> Core 0
 
 // State variables
 static http_transfer_state_t transfer_state;
+
+// Mutex for protecting transfer state
+static mutex_t transfer_mutex;
 
 // === CORE 1: HTTP Client ===
 
@@ -119,10 +125,13 @@ static err_t http_recv_callback(void* arg, struct altcp_pcb* conn, struct pbuf* 
     }
 
     // Consumed entire pbuf chain - free and ACK
-    size_t total_bytes = p->tot_len;
+    // (Wait, we can't ACK bytes inside chunks that are still in queue?
+    //  Actually we can, because we've *accepted* them into our system.
+    //  The queue acts as the receive buffer extension.)
+    size_t pbuf_total = p->tot_len; // Save before free
     pbuf_free(p);
-    state->total_bytes_received += total_bytes;
-    altcp_recved(conn, total_bytes);
+    state->total_bytes_received += pbuf_total;
+    altcp_recved(conn, pbuf_total);
 
     return ERR_OK;
 }
@@ -193,10 +202,18 @@ static void http_result_callback(void* arg, httpc_result_t httpc_result, u32_t r
         }
     }
 
-    // Try to queue final status, but don't block
-    if (!queue_try_add(&inbound_queue, &state->final_status))
+    // Try to queue final status, but ONLY if final data chunk succeeded
+    // Otherwise defer - EOF must come AFTER all data
+    if (!state->pending_final_chunk)
     {
-        // Queue full - save for retry in http_get_poll()
+        if (!queue_try_add(&inbound_queue, &state->final_status))
+        {
+            state->pending_final_status = true;
+        }
+    }
+    else
+    {
+        // Data chunk pending - must wait to send EOF after data
         state->pending_final_status = true;
     }
 

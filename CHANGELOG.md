@@ -1,3 +1,36 @@
+# Changelog - Build 742 (2026-01-05)
+
+## 📡 Remote File System (RFS) & Memory Stability
+- **Platform-Specific Optimization (RAM Cache)**:
+    - **RP2040 (Pico W)**: 80KB Cache (Optimized for stability).
+    - **RP2350 (Pico 2 W)**: 180KB Cache (High performance).
+- **Critical Fix**: Resolved premature HTTP connection closure that caused chunked large file transfers to fail.
+- **Asynchronous Writes**: Implemented "Fire-and-Forget" write strategy for RFS, significantly improving disk I/O latency.
+
+## 🌐 Network Stack (lwIP) Tuning
+Comprehensive memory tuning to eliminate "Out of Memory" panics while maximizing throughput.
+
+| Tuning Parameter | Old Value | New Value | Reason |
+| :--- | :--- | :--- | :--- |
+| **MEM_LIBC_MALLOC** | `1` | `0` | **CRITICAL**: Use lwIP's bounded pool instead of system heap to prevent OOM crashes. |
+| **MEM_SIZE** | `12000` | `26000` | Increased heap for TCP Window buffering during bursts. |
+| **PBUF_POOL_SIZE** | `20` | `22` | Added buffer headroom for concurrent RFS + HTTP traffic. |
+| **MEMP_NUM_TCP_PCB** | `16` | `10` | Reduced max PCB count to save RAM (Max observed usage: 6). |
+| **TCP_WND** | `4 * MSS` | `8 * MSS` | Increased window size for better throughput. |
+
+## 🛠 Build System & Toolchain
+- **Automated Artifact Management**: `build_all_boards.sh` now aggregates all builds into `Releases/` folder.
+- **New Release Targets**:
+    - `altair_pico_w_inky.uf2`: Pico W + Inky Pack (RFS enabled).
+    - `altair_pico2_w_display28_rfs.uf2`: Pico 2 W + 2.8" Display + RFS.
+- **Monitoring**: Added real-time lwIP memory statistics (Heap, PBUF, SEG, PCB) to serial output for performance validation.
+
+## ⚙️ Configuration & Defaults
+- **Default Server**: Updated default RFS Server IP to `192.168.1.151` in build scripts.
+- **Release Optimization**: `build_all_boards.sh` now forces `ALTAIR_DEBUG=OFF` and skips copying bulky `.elf` files, producing a clean set of release-ready `.uf2` binaries.
+
+---
+
 # Changelog - Build 694 (2026-01-04)
 
 ## 🎉 New Feature: Remote File System (RFS)

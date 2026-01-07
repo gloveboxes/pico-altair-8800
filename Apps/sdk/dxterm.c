@@ -33,38 +33,6 @@
 
 #include "dxterm.h"
 
-/* x_outs(s) - Write a literal string without printf overhead. */
-int x_outs(s)
-char *s;
-{
-    while (*s)
-        putchar(*s++);
-    return 0;
-}
-
-/* x_prdec(n) - Print positive decimal (1..9999) quickly. */
-int x_prdec(n)
-int n;
-{
-    char buf[5];
-    int i;
-
-    if (n < 1)
-        n = 1;
-
-    i = 0;
-    while (n > 0 && i < 5)
-    {
-        buf[i++] = (n % 10) + '0';
-        n /= 10;
-    }
-
-    while (i--)
-        putchar(buf[i]);
-
-    return 0;
-}
-
 /* x_numpr(n) - Print signed integer in decimal form. */
 int x_numpr(n)
 int n;
@@ -102,19 +70,14 @@ int x_curmv(row, col)
 int row;
 int col;
 {
-    putchar(27);
-    putchar('[');
-    x_prdec(row);
-    putchar(';');
-    x_prdec(col);
-    putchar('H');
+    printf("\033[%d;%dH", row, col);
     return 0;
 }
 
 /* x_clrsc() - Clear screen and reset attributes. */
 int x_clrsc()
 {
-    x_outs("\033[2J\033[0m");
+    printf("\033[2J\033[0m");
     x_curmv(1, 1);
     return 0;
 }
@@ -122,14 +85,14 @@ int x_clrsc()
 /* x_hidcr() - Hide the terminal cursor. */
 int x_hidcr()
 {
-    x_outs("\033[?25l");
+    printf("\033[?25l");
     return 0;
 }
 
 /* x_shwcr() - Show the terminal cursor. */
 int x_shwcr()
 {
-    x_outs("\033[?25h");
+    printf("\033[?25h");
     return 0;
 }
 
@@ -217,23 +180,20 @@ int code;
 int x_setcol(code)
 int code;
 {
-    putchar(27);
-    putchar('[');
-    x_prdec(code);
-    putchar('m');
+    printf("\033[%dm", code);
     return 0;
 }
 
 /* x_rstcol() - Reset all color and text attributes. */
 int x_rstcol()
 {
-    x_outs("\033[0m");
+    printf("\033[0m");
     return 0;
 }
 
 /* x_erseol() - Erase from cursor to end of line. */
 int x_erseol()
 {
-    x_outs("\033[K");
+    printf("\033[K");
     return 0;
 }

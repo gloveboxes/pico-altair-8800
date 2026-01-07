@@ -15,6 +15,7 @@
 #include "cyw43.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
+#include "lwip/stats.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "wifi.h"
@@ -49,6 +50,28 @@ static struct repeating_timer ws_output_timer;
 
 // Timer for periodic WebSocket input
 static struct repeating_timer ws_input_timer;
+
+// Timer for lwIP stats reporting
+static struct repeating_timer lwip_stats_timer;
+#define LWIP_STATS_INTERVAL_MS 30000 // 30 seconds
+
+// lwIP stats callback - fires every 30 seconds
+static bool lwip_stats_timer_callback(struct repeating_timer* t)
+{
+    (void)t;
+#if MEM_STATS || MEMP_STATS
+    printf(
+        "[LWIP] Heap max:%u err:%u | PBUF:%u/%u(max %u,err %u) | SEG:%u/%u(max %u,err %u) | PCB:%u/%u(max %u,err %u)\n",
+        (unsigned)lwip_stats.mem.max, (unsigned)lwip_stats.mem.err, (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->used,
+        (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->avail, (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->max,
+        (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->err, (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->used,
+        (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->avail, (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->max,
+        (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->err, (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->used,
+        (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->avail, (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->max,
+        (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->err);
+#endif
+    return true;
+}
 
 // Timer callback for output - fires every 20ms
 static bool ws_output_timer_callback(struct repeating_timer* t)
@@ -204,6 +227,10 @@ static void websocket_console_core1_entry(void)
 
     add_repeating_timer_ms(-WS_INPUT_TIMER_INTERVAL_MS, ws_input_timer_callback, NULL, &ws_input_timer);
     printf("[Core1] Started WebSocket input timer (%dms interval)\n", WS_INPUT_TIMER_INTERVAL_MS);
+
+    // Start lwIP stats timer for memory monitoring
+    add_repeating_timer_ms(-LWIP_STATS_INTERVAL_MS, lwip_stats_timer_callback, NULL, &lwip_stats_timer);
+    printf("[Core1] Started lwIP stats timer (%ds interval)\n", LWIP_STATS_INTERVAL_MS / 1000);
 
     // Mark console as initialized only after successful network stack initialization
     console_initialized = true;

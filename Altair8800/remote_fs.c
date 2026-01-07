@@ -21,7 +21,16 @@
 #endif
 
 #ifndef RFS_SERVER_PORT
-#define RFS_SERVER_PORT 8080
+#define RFS_SERVER_PORT 8085
+#endif
+
+// Cache configuration
+#if defined(PICO_RP2040)
+// Pico W has 264KB RAM - 60KB cache (~400 sectors)
+#define RFS_CACHE_SIZE_BYTES (60 * 1024)
+#else
+// RP2350 (Pico 2 W) has 520KB RAM - we can afford a large 160KB cache (~1,170 sectors)
+#define RFS_CACHE_SIZE_BYTES (160 * 1024)
 #endif
 
 // Queue sizes
@@ -74,7 +83,7 @@ static uint8_t rfs_write_buf[4 + RFS_SECTOR_SIZE];
 // ============================================================================
 
 // Cache configuration
-#define RFS_CACHE_SIZE_BYTES (160 * 1024) // 160KB
+// (Defined at top of file based on platform)
 
 // Cache entry structure (148 bytes each)
 typedef struct

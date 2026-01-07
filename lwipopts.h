@@ -12,36 +12,30 @@
 #ifndef LWIP_SOCKET
 #define LWIP_SOCKET 0 // Disable BSD-style socket API
 #endif
-#if PICO_CYW43_ARCH_POLL
-#define MEM_LIBC_MALLOC 1 // Use standard malloc/free for memory allocation
-#else
-// MEM_LIBC_MALLOC is incompatible with non polling versions
-#define MEM_LIBC_MALLOC 0 // Use lwIP's internal memory pool
-#endif
+#define MEM_LIBC_MALLOC 0         // Use lwIP's internal memory pool
 #define MEM_ALIGNMENT 4           // Memory alignment (4 bytes for ARM)
-#define MEM_SIZE 16000            // Size of the heap memory (bytes) - Increased for WebSocket + RFS
+#define MEM_SIZE 50000            // Size of the heap memory (bytes) - Increased to 50KB to stop allocation errors
 #define MEMP_NUM_TCP_SEG 32       // Number of simultaneously queued TCP segments - Increased for larger responses
 #define MEMP_NUM_ARP_QUEUE 10     // Number of packets queued waiting for ARP resolution
 #define MEMP_NUM_TCP_PCB 16       // Number of simultaneously active TCP connections - Increased to handle TIME_WAIT
 #define MEMP_NUM_TCP_PCB_LISTEN 5 // Number of listening TCP connections - Increased to prevent lockout
-#define PBUF_POOL_SIZE 32         // Number of buffers in the pbuf pool - Increased for concurrent RFS + WebSocket
+#define PBUF_POOL_SIZE 24         // Number of buffers in the pbuf pool - Reduced for memory savings
 #define LWIP_ARP 1                // Enable ARP protocol
 #define LWIP_ETHERNET 1           // Enable Ethernet support
-#define LWIP_ICMP 0               // Disable ICMP protocol (ping)
-#define LWIP_RAW 0                // Disable raw IP sockets
-#define TCP_WND (8 * TCP_MSS)     // TCP receive window size - needs 8× for large WebSocket HTML
+#define LWIP_ICMP 1               // Enable ICMP protocol (ping)
+#define LWIP_RAW 1                // Enable raw IP sockets
+#define TCP_WND (6 * TCP_MSS)     // TCP receive window size - Balanced for 8KB HTML content
 #define TCP_MSS 1460              // TCP maximum segment size (bytes)
-#define TCP_SND_BUF (8 * TCP_MSS) // TCP sender buffer space (bytes) - needs 8× for large WebSocket HTML
+#define TCP_SND_BUF (6 * TCP_MSS) // TCP sender buffer space (bytes) - Sized to accommodate HTML page
 #define TCP_SND_QUEUELEN ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS)) // TCP sender buffer space (pbufs)
-#define TCP_OVERSIZE TCP_MSS         // Pre-allocate extra space for small writes (avoids realloc)
-#define LWIP_NETIF_STATUS_CALLBACK 1 // Enable network interface status callbacks
-#define LWIP_NETIF_LINK_CALLBACK 1   // Enable link status change callbacks
-#define LWIP_NETIF_HOSTNAME 1        // Support hostname in DHCP requests
-#define LWIP_NETCONN 0               // Disable sequential API (netconn)
-#define MEM_STATS 0                  // Disable memory statistics
-#define SYS_STATS 0                  // Disable system statistics
-#define MEMP_STATS 0                 // Disable memory pool statistics
-#define LINK_STATS 0                 // Disable link layer statistics
+#define LWIP_NETIF_STATUS_CALLBACK 1                                       // Enable network interface status callbacks
+#define LWIP_NETIF_LINK_CALLBACK 1                                         // Enable link status change callbacks
+#define LWIP_NETIF_HOSTNAME 1                                              // Support hostname in DHCP requests
+#define LWIP_NETCONN 0                                                     // Disable sequential API (netconn)
+#define MEM_STATS 1                                                        // Enable memory statistics
+#define SYS_STATS 1                                                        // Enable system statistics
+#define MEMP_STATS 1                                                       // Enable memory pool statistics
+#define LINK_STATS 1                                                       // Enable link layer statistics
 // #define ETH_PAD_SIZE                2  // Ethernet padding for 32-bit alignment
 #define LWIP_CHKSUM_ALGORITHM 3     // Checksum algorithm (3 = optimized)
 #define LWIP_DHCP 1                 // Enable DHCP client
@@ -54,16 +48,6 @@
 #define LWIP_NETIF_TX_SINGLE_PBUF 1 // Put all data to send into one pbuf (for DMA compatibility)
 #define DHCP_DOES_ARP_CHECK 0       // Disable ARP check on offered DHCP address
 #define LWIP_DHCP_DOES_ACD_CHECK 0  // Disable Address Conflict Detection
-
-// Additional optimizations
-#define TCP_TMR_INTERVAL 250     // TCP timer interval (default 250ms)
-#define LWIP_SO_RCVTIMEO 1       // Enable receive timeouts (useful for HTTP)
-#define MEMP_NUM_PBUF 16         // Number of pbufs for memp pool
-#define DNS_MAX_SERVERS 2        // Limit DNS servers (default 2)
-#define DNS_TABLE_SIZE 4         // DNS cache entries - reduced from default 8
-#define HTTPC_DEBUG LWIP_DBG_OFF // Disable HTTP client debug
-#define LWIP_TCP_TIMESTAMPS 0    // Disable TCP timestamps (saves 12 bytes/segment)
-#define TCP_LISTEN_BACKLOG 1     // Enable listen backlog for better connection handling
 
 #ifndef NDEBUG
 #define LWIP_DEBUG 1         // Enable debug output in debug builds

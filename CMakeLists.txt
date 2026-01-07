@@ -30,7 +30,7 @@ option(WAVESHARE_3_5_DISPLAY "Enable Waveshare 3.5 inch LCD support (uses spi1)"
 option(REMOTE_FS_SUPPORT "Enable Remote Filesystem support over TCP" OFF)
 
 # Remote FS server configuration
-set(RFS_SERVER_IP "192.168.1.22" CACHE STRING "Remote FS server IP address")
+set(RFS_SERVER_IP "192.168.1.151" CACHE STRING "Remote FS server IP address")
 set(RFS_SERVER_PORT "8085" CACHE STRING "Remote FS server port")
 
 # Ensure only one display is enabled at a time
@@ -221,7 +221,7 @@ endif()
 if(REMOTE_FS_SUPPORT)
     target_compile_definitions(altair PRIVATE 
         REMOTE_FS_SUPPORT=1
-        RFS_SERVER_IP="${RFS_SERVER_IP}"
+        RFS_SERVER_IP=\"${RFS_SERVER_IP}\"
         RFS_SERVER_PORT=${RFS_SERVER_PORT}
     )
     message(STATUS "🌐 Remote FS enabled - Server: ${RFS_SERVER_IP}:${RFS_SERVER_PORT}")

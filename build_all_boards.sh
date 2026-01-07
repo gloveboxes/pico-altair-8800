@@ -32,10 +32,14 @@ echo ""
 
 # Array of boards to test
 # Note: Display 2.8 and large patch pool require RP2350 (520KB RAM) - pico/pico_w only have 264KB
-BOARDS=("pico" "pico2" "pico2_w" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28" "pimoroni_pico_plus2_w_rp2350_waveshare35_sd" "pico2_w_inky" "pico2_display28" "pico2_w_display28" "pico2_w_display28_rfs")
+BOARDS=("pico" "pico2" "pico2_w" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28_rfs" "pico2_w_display28_rfs" "pico2_w_inky_rfs" "pico_w" "pico_w_inky")
 
-# Create tests directory
+# Create tests directory (clean slate)
 TESTS_DIR="${SCRIPT_DIR}/tests"
+if [ -d "$TESTS_DIR" ]; then
+    echo -e "${YELLOW}Cleaning old test artifacts...${NC}"
+    rm -rf "$TESTS_DIR"
+fi
 mkdir -p "$TESTS_DIR"
 
 echo -e "${BLUE}=================================${NC}"
@@ -70,7 +74,7 @@ for BOARD in "${BOARDS[@]}"; do
     CLEAN_BOARD="${CLEAN_BOARD//_waveshare35_sd/}"
     CLEAN_BOARD="${CLEAN_BOARD//_rfs/}"
     CLEAN_BOARD="${CLEAN_BOARD//_sd/}"
-    CMAKE_OPTS="-DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=${CLEAN_BOARD} -DSKIP_VERSION_INCREMENT=1"
+    CMAKE_OPTS="-DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=${CLEAN_BOARD} -DSKIP_VERSION_INCREMENT=1 -DALTAIR_DEBUG=OFF"
     
     # Configure SD Card Support
     if [[ "$BOARD" == *"_sd" ]] || [[ "$BOARD" == *"_waveshare35_sd" ]]; then
@@ -93,10 +97,10 @@ for BOARD in "${BOARDS[@]}"; do
         CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=OFF"
     fi
     
-    # Add Remote FS support
-    if [[ "$BOARD" == *"_rfs" ]]; then
+    # Add Remote FS support (Explicit _rfs suffix OR any pico_w variant)
+    if [[ "$BOARD" == *"_rfs" ]] || [[ "$BOARD" == "pico_w" ]] || [[ "$BOARD" == "pico_w_inky" ]]; then
         # Default RFS server config - user can override or use default
-        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP='\"192.168.1.50\"' -DRFS_SERVER_PORT=8085"
+        CMAKE_OPTS="$CMAKE_OPTS -DREMOTE_FS_SUPPORT=ON -DRFS_SERVER_IP=192.168.1.50 -DRFS_SERVER_PORT=8085"
     fi
     
     if cmake -B build $CMAKE_OPTS && \
@@ -112,8 +116,9 @@ for BOARD in "${BOARDS[@]}"; do
         
         if [ -f "build/altair.uf2" ]; then
             cp build/altair.uf2 "${BOARD_DIR}/altair_${BOARD}.uf2"
-            cp build/altair.elf "${BOARD_DIR}/altair_${BOARD}.elf"
-            cp build/altair.dis "${BOARD_DIR}/altair_${BOARD}.dis" 2>/dev/null || true
+            # Only keep UF2 for release builds
+            # cp build/altair.elf "${BOARD_DIR}/altair_${BOARD}.elf"
+            # cp build/altair.dis "${BOARD_DIR}/altair_${BOARD}.dis" 2>/dev/null || true
             
             # Get file size
             UF2_SIZE=$(du -h "${BOARD_DIR}/altair_${BOARD}.uf2" | cut -f1)
@@ -167,6 +172,15 @@ REPORT_FILE="${TESTS_DIR}/build_report.txt"
     find "$TESTS_DIR" -name "*.uf2" -o -name "*.elf" | sort
     
 } > "$REPORT_FILE"
+
+# Copy successfully built artifacts to Releases folder
+RELEASES_DIR="${SCRIPT_DIR}/Releases"
+mkdir -p "$RELEASES_DIR"
+echo ""
+echo -e "${YELLOW}Copying artifacts to Releases directory...${NC}"
+find "$TESTS_DIR" -name "*.uf2" -exec cp {} "$RELEASES_DIR/" \;
+echo -e "${GREEN}All UF2 artifacts copied to ${RELEASES_DIR}${NC}"
+echo ""
 
 # Print summary to console
 echo -e "${BLUE}=================================${NC}"

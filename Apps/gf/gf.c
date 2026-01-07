@@ -1,8 +1,7 @@
 #include <stdio.h>
 
-#define GF_VERSION "1.3"
+#define GF_VERSION "1.43"
 #define GMSREPO "https://raw.githubusercontent.com/AzureSphereCloudEnabledAltair8800/RetroGames/main"
-
 
 /* Function prototypes */
 int save_ep_url();
@@ -11,23 +10,23 @@ int str_tolower();
 
 /* --- Begin dxweb.c inlined --- */
 #define WG_IDX_RESET 109
-#define WWG_SET_URL  112
-#define WG_FILENAME  114
-#define WG_EP_NAME   110
+#define WWG_SET_URL 112
+#define WG_FILENAME 114
+#define WG_EP_NAME 110
 
-#define WG_STATUS    33
-#define WG_EOF       0
-#define WG_FAILED    3
+#define WG_STATUS 33
+#define WG_EOF 0
+#define WG_FAILED 3
 #define WG_DATAREADY 2
-#define WG_GET_BYTE  201
-#define WG_WAITING   1
+#define WG_GET_BYTE 201
+#define WG_WAITING 1
 
 int inp();
 int outp();
 int fputc();
 
 int dxwebfn(filename, len, endpoint)
-char *filename;
+char* filename;
 int len;
 int endpoint;
 {
@@ -45,8 +44,8 @@ int endpoint;
 }
 
 int dxwebcpy(fp_output, bytes_written)
-FILE *fp_output;
-int *bytes_written;
+FILE* fp_output;
+int* bytes_written;
 {
     int status;
     int count;
@@ -69,9 +68,20 @@ int *bytes_written;
 
         if (status == WG_DATAREADY)
         {
-            next_byte = inp(WG_GET_BYTE) & 255;
-            fputc(next_byte, fp_output);
-            count++;
+            /* Read all available bytes in tight loop */
+            do
+            {
+                next_byte = inp(WG_GET_BYTE) & 255;
+                fputc(next_byte, fp_output);
+                count++;
+                status = inp(WG_STATUS) & 255;
+            } while (status == WG_DATAREADY);
+
+            /* Exit if we hit EOF or FAILED during read */
+            if (status == WG_EOF || status == WG_FAILED)
+            {
+                break;
+            }
         }
         else if (status == WG_WAITING)
         {
@@ -88,7 +98,7 @@ int *bytes_written;
 }
 
 int dxseturl(endpoint, len)
-char *endpoint;
+char* endpoint;
 int len;
 {
     int c;
@@ -103,14 +113,14 @@ int len;
 }
 /* --- End dxweb.c inlined --- */
 
-FILE *fp_output;
-char *endpoint;
-char *filename;
+FILE* fp_output;
+char* endpoint;
+char* filename;
 char file_content[128];
 
 int defaults()
 {
-    FILE *fp;
+    FILE* fp;
     int len;
 
     /* Load endpoint from gf.txt */
@@ -140,7 +150,7 @@ int defaults()
 
 int main(argc, argv)
 int argc;
-char **argv;
+char** argv;
 {
     int wg_result, bytes_written;
 
@@ -171,9 +181,9 @@ char **argv;
 
     if (argc == 3)
     {
-        char *save_filename;
-        char *path_iter;
-        
+        char* save_filename;
+        char* path_iter;
+
         if (strcmp(argv[1], "-e") == 0 || strcmp(argv[1], "-E") == 0)
         {
             endpoint = argv[2];
@@ -214,8 +224,6 @@ char **argv;
                 return -1;
             }
 
-
-
             printf("\nDownloading file '%s' from URL '%s'\n", filename, file_content);
             if (save_filename != filename)
             {
@@ -228,7 +236,7 @@ char **argv;
                 printf("Check disk space and write permissions.\n");
                 return -1;
             }
-            
+
             dxwebfn(filename, strlen(filename), 0);
             wg_result = dxwebcpy(fp_output, &bytes_written);
             if (wg_result == 0)
@@ -278,7 +286,7 @@ char **argv;
                 printf("Check disk space and write permissions.\n");
                 return -1;
             }
-            
+
             /* Set games repository as the custom endpoint */
             dxseturl(GMSREPO, strlen(GMSREPO));
             dxwebfn(filename, strlen(filename), 0);
@@ -295,7 +303,8 @@ char **argv;
             fclose(fp_output);
             if (wg_result == -1)
             {
-                printf("\n\nGame download failed for file '%s'. Check filename and network connection\n", save_filename);
+                printf("\n\nGame download failed for file '%s'. Check filename and network connection\n",
+                       save_filename);
                 unlink(save_filename);
             }
             return 0;
@@ -346,10 +355,8 @@ char **argv;
     return 0;
 }
 
-
-
 int validate_endpoint(url)
-char *url;
+char* url;
 {
     char check_url[6];
     int c;
@@ -380,9 +387,9 @@ char *url;
 }
 
 int save_ep_url(endpoint)
-char *endpoint;
+char* endpoint;
 {
-    FILE *fp;
+    FILE* fp;
     /* write endpoint to gf.txt */
     fp = fopen("gf.txt", "w");
     if (fp != NULL)
@@ -399,5 +406,3 @@ char *endpoint;
     }
     return 0;
 }
-
-
