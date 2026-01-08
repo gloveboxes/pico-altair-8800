@@ -3,9 +3,9 @@
  * OPTIMIZED: Labels drawn once at init, only LEDs updated each frame
  */
 
-#include "display_2_8.h"
+#include "display_st7789.h"
 
-#ifdef DISPLAY_2_8_SUPPORT
+#ifdef DISPLAY_ST7789_SUPPORT
 
 #include "build_version.h"
 #include "st7789_async.h"
@@ -19,7 +19,7 @@ static const int LED_SPACING_STATUS = 32;
 static const int LED_SPACING_ADDRESS = 20;
 static const int LED_SPACING_DATA = 20;
 
-void display_2_8_init(void)
+void display_st7789_init(void)
 {
     // Initialize async ST7789 driver
     if (!st7789_async_init())
@@ -28,17 +28,17 @@ void display_2_8_init(void)
     }
 }
 
-void display_2_8_update(const char* ssid, const char* ip)
+void display_st7789_update(const char* ssid, const char* ip)
 {
     // Not implemented for async driver
 }
 
-void display_2_8_set_cpu_led(bool cpu_running)
+void display_st7789_set_cpu_led(bool cpu_running)
 {
     // RGB LED not implemented in async driver
 }
 
-void display_2_8_init_front_panel(void)
+void display_st7789_init_front_panel(void)
 {
     // Clear screen once
     st7789_async_clear(rgb332(0, 0, 0));
@@ -50,13 +50,14 @@ void display_2_8_init_front_panel(void)
 
     // STATUS section - label and separator
     int y_status = 35;
-    st7789_async_text("STATUS", 5, y_status - 15, TEXT_WHITE);
+    st7789_async_text("STATUS", 282, y_status - 15, TEXT_WHITE);
     st7789_async_fill_rect(0, y_status - 5, 320, 3, TEXT_WHITE);
 
     // Status labels (drawn once, never cleared)
     const char* status_labels[] = {"INT ", "WO  ", "STCK", "HLTA", "OUT ", "M1  ", "INP ", "MEMR", "PROT", "INTE"};
-    int x_status = 10;
-    for (int i = 0; i < 10; i++)
+    int x_status = 16;
+    // Status labels: 9..0 (INTE..INT)
+    for (int i = 9; i >= 0; i--)
     {
         st7789_async_text(status_labels[i], x_status - 8, y_status + LED_SIZE + 2, TEXT_GRAY);
         x_status += LED_SPACING_STATUS;
@@ -64,15 +65,16 @@ void display_2_8_init_front_panel(void)
 
     // ADDRESS section - label and separator
     int y_addr = 100;
-    st7789_async_text("ADDRESS", 5, y_addr - 15, TEXT_WHITE);
+    st7789_async_text("ADDRESS", 276, y_addr - 15, TEXT_WHITE);
     st7789_async_fill_rect(0, y_addr - 5, 320, 3, TEXT_WHITE);
 
     // Address labels (A15-A0)
-    int x_addr = 2;
+    int x_addr = 4;
     for (int i = 15; i >= 0; i--)
     {
         char label[4];
-        int label_bit = 15 - i;
+        // Draw MSB (A15) at Left (first iteration), down to LSB (A0) at Right
+        int label_bit = i;
         if (label_bit >= 10)
         {
             label[0] = 'A';
@@ -93,15 +95,16 @@ void display_2_8_init_front_panel(void)
 
     // DATA section - label and separator
     int y_data = 170;
-    st7789_async_text("DATA", 5, y_data - 15, TEXT_WHITE);
+    st7789_async_text("DATA", 294, y_data - 15, TEXT_WHITE);
     st7789_async_fill_rect(0, y_data - 5, 320, 3, TEXT_WHITE);
 
     // Data labels (D7-D0)
-    int x_data = 2;
-    for (int i = 7; i >= 0; i--)
+    int x_data = 158;
+    for (int i = 7; i >= 0; i--) // 7..0 (D7..D0)
     {
         char label[3];
-        int label_bit = 7 - i;
+        // Draw MSB (D7) at Left, down to LSB (D0) at Right
+        int label_bit = i;
         label[0] = 'D';
         label[1] = '0' + label_bit;
         label[2] = '\0';
@@ -115,15 +118,20 @@ void display_2_8_init_front_panel(void)
     if (ip != NULL)
     {
         char ip_text[32];
-        snprintf(ip_text, sizeof(ip_text), "WiFi: %s", ip);
-        st7789_async_text(ip_text, 5, 220, TEXT_WHITE);
+        snprintf(ip_text, sizeof(ip_text), "WIFI: %s", ip);
+
+        // Calculate width: 5x8 font + 1px spacing = 6px per char
+        int title_len = strlen(ip_text);
+        int title_x = 320 - (title_len * 6) - 2;
+
+        st7789_async_text(ip_text, title_x, 220, TEXT_WHITE);
     }
 #endif
 
     // Altair 8800 logo with build info
     char title_buffer[64];
     snprintf(title_buffer, sizeof(title_buffer), "ALTAIR 8800 (%d %s %s)", BUILD_VERSION, BUILD_DATE, BUILD_TIME);
-    st7789_async_text(title_buffer, 94, 20, TEXT_WHITE);
+    st7789_async_text(title_buffer, 2, 20, TEXT_WHITE);
 
     // Send initial frame
     st7789_async_update();
@@ -131,7 +139,7 @@ void display_2_8_init_front_panel(void)
     printf("[Display] Static elements drawn (labels persist)\n");
 }
 
-void display_2_8_show_front_panel(uint16_t address, uint8_t data, uint16_t status)
+void display_st7789_show_front_panel(uint16_t address, uint8_t data, uint16_t status)
 {
     static uint16_t last_status = 0xFFFF; // Initialize to impossible values to force first draw
     static uint16_t last_address = 0xFFFF;
@@ -147,11 +155,14 @@ void display_2_8_show_front_panel(uint16_t address, uint8_t data, uint16_t statu
     // STATUS LEDs (10 LEDs) - only update if changed
     if (status != last_status)
     {
-        int x_status = 10;
+        int x_status = 8;
         int y_status = 35;
-        for (int i = 0; i < 10; i++)
+        // Status LEDs: 9..0 Match Labels
+        for (int i = 9; i >= 0; i--)
         {
-            bool led_state = (status >> i) & 1;
+            // Bit 9 (INTE) on Left
+            int bit = i;
+            bool led_state = (status >> bit) & 1;
             st7789_async_fill_rect(x_status, y_status, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
             x_status += LED_SPACING_STATUS;
         }
@@ -166,7 +177,8 @@ void display_2_8_show_front_panel(uint16_t address, uint8_t data, uint16_t statu
         int y_addr = 100;
         for (int i = 15; i >= 0; i--)
         {
-            int bit = 15 - i;
+            // Draw MSB (15) at Left, LSB (0) at Right
+            int bit = i;
             bool led_state = (address >> bit) & 1;
             st7789_async_fill_rect(x_addr, y_addr, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
             x_addr += LED_SPACING_ADDRESS;
@@ -178,11 +190,13 @@ void display_2_8_show_front_panel(uint16_t address, uint8_t data, uint16_t statu
     // DATA LEDs (8 LEDs) - only update if changed
     if (data != last_data)
     {
-        int x_data = 2;
+        int x_data = 162;
         int y_data = 170;
+        // Data LEDs: 7..0 Match Labels
         for (int i = 7; i >= 0; i--)
         {
-            int bit = 7 - i;
+            // Bit 7 (D7) on Left
+            int bit = i;
             bool led_state = (data >> bit) & 1;
             st7789_async_fill_rect(x_data, y_data, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
             x_data += LED_SPACING_DATA;
@@ -198,7 +212,7 @@ void display_2_8_show_front_panel(uint16_t address, uint8_t data, uint16_t statu
     }
 }
 
-void display_2_8_get_stats(uint64_t* skipped_updates)
+void display_st7789_get_stats(uint64_t* skipped_updates)
 {
     uint64_t updates, skipped;
     st7789_async_get_stats(&updates, &skipped);
@@ -208,4 +222,4 @@ void display_2_8_get_stats(uint64_t* skipped_updates)
     }
 }
 
-#endif // DISPLAY_2_8_SUPPORT
+#endif // DISPLAY_ST7789_SUPPORT

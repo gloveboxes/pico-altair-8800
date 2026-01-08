@@ -1,22 +1,27 @@
-/* Custom Async ST7789 Driver for Pimoroni Pico Display 2.8"
+/* Custom Async ST7789VW Driver for Waveshare 2" LCD
  * Simplified non-blocking implementation for LED display
  *
- * Pin configuration for Pimoroni Pico Display 2.8":
- * - DC: GPIO 16
- * - CS: GPIO 17
- * - SCK: GPIO 18 (SPI0)
- * - MOSI: GPIO 19 (SPI0)
- * - BL: GPIO 20
- * - RGB LED: GPIO 26, 27, 28
+ * Pin configuration for Waveshare 2" LCD:
+ * - DC: GPIO 8
+ * - CS: GPIO 9
+ * - SCK: GPIO 10 (SPI1)
+ * - MOSI: GPIO 11 (SPI1)
+ * - RST: GPIO 12
+ * - BL: GPIO 13
  */
 
-#include "st7789_async.h"
+#include "hardware/dma.h"
+#include "hardware/gpio.h"
 #include "hardware/pwm.h"
+#include "hardware/spi.h"
+#include "pico/stdlib.h"
+#include "st7789_async.h"
 #include <string.h>
 
-// ST7789 Commands
+// ST7789VW Commands
 #define ST7789_SWRESET 0x01
 #define ST7789_SLPOUT 0x11
+#define ST7789_NORON 0x13
 #define ST7789_COLMOD 0x3A
 #define ST7789_MADCTL 0x36
 #define ST7789_CASET 0x2A
@@ -25,18 +30,16 @@
 #define ST7789_DISPON 0x29
 #define ST7789_INVON 0x21
 
-// Pin definitions for Pimoroni Pico Display 2.8"
-#define PIN_DC 16
-#define PIN_CS 17
-#define PIN_SCK 18
-#define PIN_MOSI 19
-#define PIN_BL 20
-#define PIN_LED_R 26
-#define PIN_LED_G 27
-#define PIN_LED_B 28
+// Pin definitions for Waveshare 2" LCD
+#define PIN_DC 8
+#define PIN_CS 9
+#define PIN_SCK 10
+#define PIN_MOSI 11
+#define PIN_RST 12
+#define PIN_BL 13
 
-// SPI instance - Pimoroni uses GPIO 18/19 which are SPI0
-#define SPI_INST spi0
+// SPI instance - Waveshare uses GPIO 10/11 which are SPI1
+#define SPI_INST spi1
 
 // Framebuffer (320x240 x 2 bytes RGB565)
 static uint16_t g_framebuffer[ST7789_ASYNC_WIDTH * ST7789_ASYNC_HEIGHT];
@@ -147,8 +150,8 @@ static void dma_irq_handler(void)
 
 bool st7789_async_init(void)
 {
-    // Initialize SPI at 75 MHz
-    spi_init(SPI_INST, 75 * 1000 * 1000);
+    // Initialize SPI1 at 75 MHz (matching Pimoroni driver)
+    spi_init(SPI_INST, 75000000);
 
     // Set up SPI pins
     gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
@@ -168,17 +171,6 @@ bool st7789_async_init(void)
     pwm_set_gpio_level(PIN_BL, 65535); // Full brightness
     pwm_set_enabled(slice, true);
 
-    // Turn off RGB LED (active-low: HIGH = off, LOW = on)
-    gpio_init(PIN_LED_R);
-    gpio_set_dir(PIN_LED_R, GPIO_OUT);
-    gpio_put(PIN_LED_R, 1);
-    gpio_init(PIN_LED_G);
-    gpio_set_dir(PIN_LED_G, GPIO_OUT);
-    gpio_put(PIN_LED_G, 1);
-    gpio_init(PIN_LED_B);
-    gpio_set_dir(PIN_LED_B, GPIO_OUT);
-    gpio_put(PIN_LED_B, 1);
-
     // Claim DMA channel
     g_dma_channel = dma_claim_unused_channel(true);
 
@@ -193,35 +185,97 @@ bool st7789_async_init(void)
     irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
     irq_set_enabled(DMA_IRQ_0, true);
 
+    // Hardware reset
+    gpio_init(PIN_RST);
+    gpio_set_dir(PIN_RST, GPIO_OUT);
+    gpio_put(PIN_RST, 1);
+    sleep_ms(10);
+    gpio_put(PIN_RST, 0); // Reset pulse (active low)
+    sleep_ms(10);
+    gpio_put(PIN_RST, 1); // Release reset
+    sleep_ms(120);        // Wait for display to initialize
+
     // Software reset
     send_command(ST7789_SWRESET);
     sleep_ms(150);
 
     // Sleep out
     send_command(ST7789_SLPOUT);
-    sleep_ms(10);
+    sleep_ms(120);
+
+    // ST7789VW-specific initialization sequence
+
+    // Porch Setting - REMOVED (using default)
+    // send_command(0xB2);
+    // uint8_t porch[] = {0x0C, 0x0C, 0x00, 0x33, 0x33};
+    // send_data(porch, sizeof(porch));
+
+    // Gate Control
+    send_command(0xB7);
+    uint8_t gctrl = 0x35;
+    send_data(&gctrl, 1);
+
+    // VCOM Setting
+    send_command(0xBB);
+    uint8_t vcoms = 0x19;
+    send_data(&vcoms, 1);
+
+    // LCM Control
+    send_command(0xC0);
+    uint8_t lcm = 0x2C;
+    send_data(&lcm, 1);
+
+    // VDV and VRH Command Enable
+    send_command(0xC2);
+    uint8_t vdv_vrh_en = 0x01;
+    send_data(&vdv_vrh_en, 1);
+
+    // VRH Set
+    send_command(0xC3);
+    uint8_t vrhs = 0x12;
+    send_data(&vrhs, 1);
+
+    // VDV Set
+    send_command(0xC4);
+    uint8_t vdv = 0x20;
+    send_data(&vdv, 1);
+
+    // Frame Rate Control - REMOVED (using default)
+    // send_command(0xC6);
+    // uint8_t frctrl = 0x0F; // 60Hz
+    // send_data(&frctrl, 1);
+
+    // Power Control 1
+    send_command(0xD0);
+    uint8_t pwctrl[] = {0xA4, 0xA1};
+    send_data(pwctrl, sizeof(pwctrl));
+
+    // Positive Gamma
+    send_command(0xE0);
+    uint8_t pgamma[] = {0xD0, 0x04, 0x0D, 0x11, 0x13, 0x2B, 0x3F, 0x54, 0x4C, 0x18, 0x0D, 0x0B, 0x1F, 0x23};
+    send_data(pgamma, sizeof(pgamma));
+
+    // Negative Gamma
+    send_command(0xE1);
+    uint8_t ngamma[] = {0xD0, 0x04, 0x0C, 0x11, 0x13, 0x2C, 0x3F, 0x44, 0x51, 0x2F, 0x1F, 0x1F, 0x20, 0x23};
+    send_data(ngamma, sizeof(ngamma));
 
     // Color mode: RGB565 (16-bit color)
     send_command(ST7789_COLMOD);
     uint8_t colmod = 0x05; // 16-bit/pixel
     send_data(&colmod, 1);
 
-    // Memory access control for 320x240 (Rotated 180 from 0xA0)
+    // Memory access control for 320x240 landscape
     send_command(ST7789_MADCTL);
-    uint8_t madctl = 0x60; // MX + MV (Landscape rotated 180)
+    uint8_t madctl = 0xA0; // MV + MY (Landscape, X-flipped?)
     send_data(&madctl, 1);
 
-    // Gamma control for 320x240 - from Pimoroni driver
-    send_command(0xB7); // GCTRL
-    uint8_t gctrl = 0x35;
-    send_data(&gctrl, 1);
-
-    send_command(0xBB); // VCOMS
-    uint8_t vcoms = 0x1f;
-    send_data(&vcoms, 1);
-
-    // Inversion on (clearer colors)
+    // Inversion on (required for correct colors on ST7789VW)
     send_command(ST7789_INVON);
+
+    // Normal display mode
+    send_command(ST7789_NORON);
+    sleep_ms(10);
 
     // Display on
     send_command(ST7789_DISPON);
@@ -281,7 +335,7 @@ void st7789_async_text(const char* str, int x, int y, color_t color)
             // Draw 5x8 character (normal)
             for (int col = 0; col < 5; col++)
             {
-                uint8_t column_data = font_5x8[glyph_idx][col]; // Normal pixel order
+                uint8_t column_data = font_5x8[glyph_idx][col]; // Normal
                 for (int row = 0; row < 8; row++)
                 {
                     if (column_data & (1 << row))

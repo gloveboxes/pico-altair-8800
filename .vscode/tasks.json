@@ -112,7 +112,7 @@
         {
             "label": "Build for Pico 2 W with Remote FS & 2.8 Display (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DREMOTE_FS_SUPPORT=ON -DDISPLAY_2_8_SUPPORT=ON && cmake --build build -- -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_remotefs_2_8.uf2",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DREMOTE_FS_SUPPORT=ON -DDISPLAY_ST7789_SUPPORT=ON && cmake --build build -- -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_remotefs_2_8.uf2",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -124,7 +124,31 @@
         {
             "label": "Build and Deploy Pico 2 W with Remote FS & 2.8 Display (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DREMOTE_FS_SUPPORT=ON -DDISPLAY_2_8_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_remotefs_2_8.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DREMOTE_FS_SUPPORT=ON -DDISPLAY_ST7789_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_remotefs_2_8.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build for Pico 2 W with Remote FS & Waveshare 2 Display (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DREMOTE_FS_SUPPORT=ON -DDISPLAY_ST7789_SUPPORT=ON -DWAVESHARE_2_DISPLAY=ON && cmake --build build -- -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_remotefs_waveshare2.uf2",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build and Deploy Pico 2 W with Remote FS & Waveshare 2 Display (Release)",
+            "type": "shell",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DREMOTE_FS_SUPPORT=ON -DDISPLAY_ST7789_SUPPORT=ON -DWAVESHARE_2_DISPLAY=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_remotefs_waveshare2.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -220,7 +244,7 @@
         {
             "label": "Build for Pico W with Inky & Remote FS (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico_w -DINKY_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON -DDISPLAY_2_8_SUPPORT=OFF && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico_w_inky.uf2",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico_w -DINKY_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON -DDISPLAY_ST7789_SUPPORT=OFF && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico_w_inky.uf2",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -232,7 +256,7 @@
         {
             "label": "Build and Deploy Pico W with Inky & Remote FS (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico_w -DINKY_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON -DDISPLAY_2_8_SUPPORT=OFF && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico_w_inky.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico_w -DINKY_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON -DDISPLAY_ST7789_SUPPORT=OFF && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico_w_inky.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -244,7 +268,7 @@
         {
             "label": "Build for Pimoroni Pico Plus 2W with Display 2.8 & Remote FS (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pimoroni_pico_plus2_w_rp2350 -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pimoroni_pico_plus2_w_rp2350_display28_rfs.uf2",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pimoroni_pico_plus2_w_rp2350 -DINKY_SUPPORT=OFF -DDISPLAY_ST7789_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pimoroni_pico_plus2_w_rp2350_display28_rfs.uf2",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -256,7 +280,7 @@
         {
             "label": "Build and Deploy Pimoroni Pico Plus 2W with Display 2.8 & Remote FS (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pimoroni_pico_plus2_w_rp2350 -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pimoroni_pico_plus2_w_rp2350_display28_rfs.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pimoroni_pico_plus2_w_rp2350 -DINKY_SUPPORT=OFF -DDISPLAY_ST7789_SUPPORT=ON -DREMOTE_FS_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pimoroni_pico_plus2_w_rp2350_display28_rfs.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },

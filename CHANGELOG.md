@@ -1,3 +1,22 @@
+# Changelog - Build 896 (2026-01-08)
+
+## 📺 Display Driver Architecture Refactor
+- **Generic ST7789 Support**: Renamed `display_2_8` module to `display_st7789` to properly support all ST7789-based displays (Pimoroni 2.8", Waveshare 2", etc.).
+- **Variant System**: Introduced `ST7789_VARIANT` CMake variable to select between display types at compile time (e.g., `WAVESHARE_2`).
+- **Unified Interface**: Both display variants now share the same high-level `display_st7789.h` interface for initialization and updates.
+
+## 🐛 Waveshare 2" Display Fixes
+- **New Driver Variant**: Added `st7789vw_async.c` specifically for Waveshare 2" display (ST7789VW controller) with correct pinning (SPI1) and initialization sequence.
+- **Missing Includes Fixed**: Resolved compilation errors in `st7789vw_async.c` by adding missing hardware headers (`spi.h`, `dma.h`, `gpio.h`).
+- **CMake Logic Fix**: Corrected priority logic in `CMakeLists.txt` to ensure `ST7789_VARIANT` correctly selects the Waveshare driver source file.
+- **Build Script Fix**: Updated `build_all_boards.sh` to correctly pass `DISPLAY_ST7789_SUPPORT=ON` for Waveshare 2" builds (previously was defaulting to OFF).
+
+## 🛠 Build System Improvements
+- **Legacy Compatibility**: Added CMake shims to support old build flags (`DISPLAY_2_8_SUPPORT`, `WAVESHARE_2_DISPLAY`) while warning users to upgrade to new flags.
+- **Stability**: Lowered SPI clock to 50MHz for Pimoroni 2.8" display to improve signal integrity on RP2350.
+
+---
+
 # Changelog - Build 862 (2026-01-08)
 
 ## ⚙️ Generic Configuration Module

@@ -32,7 +32,7 @@ echo ""
 
 # Array of boards to test
 # Note: Display 2.8 and large patch pool require RP2350 (520KB RAM) - pico/pico_w only have 264KB
-BOARDS=("pico" "pico2" "pico2_w_rfs" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28_rfs" "pico2_w_display28_rfs" "pico2_w_inky_rfs" "pico_w" "pico_w_inky")
+BOARDS=("pico" "pico2" "pico2_w_rfs" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28_rfs" "pico2_w_display28_rfs" "pico2_w_waveshare2_rfs" "pico2_w_inky_rfs" "pico_w" "pico_w_inky")
 
 # Create tests directory (clean slate)
 TESTS_DIR="${SCRIPT_DIR}/tests"
@@ -72,6 +72,7 @@ for BOARD in "${BOARDS[@]}"; do
     CLEAN_BOARD="${BOARD//_inky/}"
     CLEAN_BOARD="${CLEAN_BOARD//_display28/}"
     CLEAN_BOARD="${CLEAN_BOARD//_waveshare35_sd/}"
+    CLEAN_BOARD="${CLEAN_BOARD//_waveshare2/}"
     CLEAN_BOARD="${CLEAN_BOARD//_rfs/}"
     CLEAN_BOARD="${CLEAN_BOARD//_sd/}"
     CMAKE_OPTS="-DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=${CLEAN_BOARD} -DSKIP_VERSION_INCREMENT=1 -DALTAIR_DEBUG=OFF"
@@ -87,14 +88,19 @@ for BOARD in "${BOARDS[@]}"; do
     if [[ "$BOARD" == *"_waveshare35_sd" ]]; then
         CMAKE_OPTS="$CMAKE_OPTS -DWAVESHARE_3_5_DISPLAY=ON"
     fi
+
+    # Add Waveshare 2" display support
+    if [[ "$BOARD" == *"_waveshare2"* ]]; then
+        CMAKE_OPTS="$CMAKE_OPTS -DST7789_VARIANT=WAVESHARE_2"
+    fi
     
     # Add display support flags
     if [[ "$BOARD" == *"_inky" ]]; then
-        CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=ON -DDISPLAY_2_8_SUPPORT=OFF"
-    elif [[ "$BOARD" == *"_display28" ]]; then
-        CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=ON"
+        CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=ON -DDISPLAY_ST7789_SUPPORT=OFF"
+    elif [[ "$BOARD" == *"_display28"* ]] || [[ "$BOARD" == *"_waveshare2"* ]]; then
+        CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=OFF -DDISPLAY_ST7789_SUPPORT=ON"
     else
-        CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=OFF -DDISPLAY_2_8_SUPPORT=OFF"
+        CMAKE_OPTS="$CMAKE_OPTS -DINKY_SUPPORT=OFF -DDISPLAY_ST7789_SUPPORT=OFF"
     fi
     
     # Add Remote FS support (Explicit _rfs suffix OR any pico_w variant)

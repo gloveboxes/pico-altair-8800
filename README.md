@@ -94,7 +94,7 @@ Right Side Pins (SDIO mode - not used):
 | **Inky Display** | ✅ No conflicts (uses I2C on different pins) |
 | **WiFi Module** | ✅ No conflicts (uses internal SPI bus on W variants) |
 
-The CMake configuration will prevent building with both `SD_CARD_SUPPORT` and `DISPLAY_2_8_SUPPORT` enabled.
+The CMake configuration will prevent building with both `SD_CARD_SUPPORT` and `DISPLAY_ST7789_SUPPORT` enabled.
 
 ### SD Card Requirements
 
@@ -138,7 +138,7 @@ cmake -B build -DPICO_BOARD=pico2 [...other flags...]
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `-DINKY_SUPPORT=ON` | ON | Pulls in the Pimoroni Inky Pack driver and shows the welcome/IP screen. Set to `OFF` to save flash/RAM when the display isn't connected. |
-| `-DDISPLAY_2_8_SUPPORT=ON` | ON | Enables support for 2.8" display. Set to `OFF` if not using this display. |
+| `-DDISPLAY_ST7789_SUPPORT=ON` | ON | Enables support for 2.8" display. Set to `OFF` if not using this display. |
 | `-DSD_CARD_SUPPORT=ON` | OFF | Enables SD Card support. Set to `ON` to enable. |
 | `-DPICO_BOARD=pico2_w` | pico2_w | Selects the Pico variant (e.g., `pico2`, `pico2_w`, `pico`, `pico_w`). WebSockets are automatically enabled for WiFi-capable boards. |
 | `-DCMAKE_BUILD_TYPE=Release` | Debug | Usual CMake switch for optimized builds (recommended). |

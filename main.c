@@ -11,7 +11,7 @@
 #else
 #include "Altair8800/pico_88dcdd_flash.h"
 #endif
-#include "FrontPanels/display_2_8.h"
+#include "FrontPanels/display_st7789.h"
 #include "FrontPanels/inky_display.h"
 #include "build_version.h"
 #include "comms_mgr.h"
@@ -253,7 +253,7 @@ static void setup_wifi(void)
     }
 }
 
-#ifdef DISPLAY_2_8_SUPPORT
+#ifdef DISPLAY_ST7789_SUPPORT
 // Global flag set by timer callback every 20ms
 static volatile bool display_update_pending = false;
 
@@ -274,8 +274,8 @@ static inline void update_display_if_changed(void)
     if (cpu.registers.flags & FLAGS_IF)
         status_word |= (1 << 9);
 
-    // display_2_8_show_front_panel handles change detection internally
-    display_2_8_show_front_panel(cpu.address_bus, cpu.data_bus, status_word);
+    // display_st7789_show_front_panel handles change detection internally
+    display_st7789_show_front_panel(cpu.address_bus, cpu.data_bus, status_word);
 }
 #endif
 
@@ -294,7 +294,7 @@ int main(void)
 
     // Initialize displays early (if enabled)
     inky_display_init();
-    display_2_8_init();
+    display_st7789_init();
 
 #if defined(CYW43_WL_GPIO_LED_PIN)
     // Board has WiFi - check if credentials exist
@@ -554,16 +554,16 @@ int main(void)
     // Update displays with system information (if enabled)
     const char* wifi_ssid = g_wifi_ok ? get_connected_ssid() : NULL;
     inky_display_update(wifi_ssid, g_wifi_ok ? g_ip_buffer : NULL);
-    display_2_8_update(wifi_ssid, g_wifi_ok ? g_ip_buffer : NULL);
+    display_st7789_update(wifi_ssid, g_wifi_ok ? g_ip_buffer : NULL);
 #else
     // No WiFi on this board
     inky_display_update(NULL, NULL);
-    display_2_8_update(NULL, NULL);
+    display_st7789_update(NULL, NULL);
 #endif
 
-#ifdef DISPLAY_2_8_SUPPORT
+#ifdef DISPLAY_ST7789_SUPPORT
     printf("\n*** Virtual Front Panel (Core 0 Enabled - Polling) ***\n");
-    display_2_8_init_front_panel();
+    display_st7789_init_front_panel();
 
     // Start hardware timer for display updates (33ms = ~30 Hz)
     static struct repeating_timer display_timer;
@@ -604,7 +604,7 @@ int main(void)
                 break;
         }
 
-#ifdef DISPLAY_2_8_SUPPORT
+#ifdef DISPLAY_ST7789_SUPPORT
         // Check if display update is pending (set by timer callback every 20ms)
         if (display_update_pending)
         {
