@@ -17,7 +17,7 @@ option(INKY_SUPPORT "Enable Pico Inky E-Ink display support" OFF)
 
 # Pico Display 2.8" support (off by default)
 # Pico Display 2.8" support (off by default)
-option(DISPLAY_ST7789_SUPPORT "Enable Pico Display 2.8 inch LCD support" OFF)
+option(DISPLAY_2_8_SUPPORT "Enable Pico Display 2.8 inch LCD support" OFF)
 
 # SD Card support (on by default)
 option(SD_CARD_SUPPORT "Enable SD Card support" OFF)
@@ -25,35 +25,23 @@ option(SD_CARD_SUPPORT "Enable SD Card support" OFF)
 # Waveshare 3.5" display support (off by default)
 # This display uses spi1 with different pins than Pimoroni displays
 option(WAVESHARE_3_5_DISPLAY "Enable Waveshare 3.5 inch LCD support (uses spi1)" OFF)
-
-# Remote FS support (off by default) - mutually exclusive with SD_CARD_SUPPORT
-option(REMOTE_FS_SUPPORT "Enable Remote Filesystem support over TCP" OFF)
-
-# Remote FS server port (IP address is configured at runtime via flash storage)
-set(RFS_SERVER_PORT "8085" CACHE STRING "Remote FS server port")
-
-# Waveshare 2" display support (off by default)
-# Uses same ST7789 driver as Pimoroni 2.8" but with different SPI pins
-option(WAVESHARE_2_DISPLAY "Enable Waveshare 2 inch LCD support (uses different SPI pins)" OFF)
+option(WAVESHARE_2_DISPLAY "Enable Waveshare 2.0 inch display" OFF)
+option(DISPLAY_ST7789_SUPPORT "Enable ST7789 LCD support" OFF)
+option(REMOTE_FS_SUPPORT "Enable Remote FS support" OFF)
 
 # Ensure only one display is enabled at a time
-if(INKY_SUPPORT AND DISPLAY_ST7789_SUPPORT)
-    message(FATAL_ERROR "Cannot enable both INKY_SUPPORT and DISPLAY_ST7789_SUPPORT at the same time. Please choose one display type.")
+if(INKY_SUPPORT AND DISPLAY_2_8_SUPPORT)
+    message(FATAL_ERROR "Cannot enable both INKY_SUPPORT and DISPLAY_2_8_SUPPORT at the same time. Please choose one display type.")
 endif()
 
 # Warn about SD Card and Display 2.8 pin conflict (only when NOT using Waveshare)
 # Waveshare 3.5" display shares SPI with SD card on spi1, so no conflict
-if(SD_CARD_SUPPORT AND DISPLAY_ST7789_SUPPORT AND NOT WAVESHARE_3_5_DISPLAY)
-    message(WARNING "⚠️  SD_CARD_SUPPORT and DISPLAY_ST7789_SUPPORT have a pin conflict!")
+if(SD_CARD_SUPPORT AND DISPLAY_2_8_SUPPORT AND NOT WAVESHARE_3_5_DISPLAY)
+    message(WARNING "⚠️  SD_CARD_SUPPORT and DISPLAY_2_8_SUPPORT have a pin conflict!")
     message(WARNING "    SD Card MISO (GPIO 16) conflicts with Display 2.8 DC (GPIO 16)")
     message(WARNING "    This configuration will NOT work correctly.")
     message(WARNING "    Choose either SD card OR Display 2.8, not both.")
-    message(FATAL_ERROR "Cannot enable both SD_CARD_SUPPORT and DISPLAY_ST7789_SUPPORT due to pin conflict on GPIO 16.")
-endif()
-
-# Ensure REMOTE_FS_SUPPORT and SD_CARD_SUPPORT are mutually exclusive
-if(REMOTE_FS_SUPPORT AND SD_CARD_SUPPORT)
-    message(FATAL_ERROR "Cannot enable both REMOTE_FS_SUPPORT and SD_CARD_SUPPORT at the same time. Please choose one disk source.")
+    message(FATAL_ERROR "Cannot enable both SD_CARD_SUPPORT and DISPLAY_2_8_SUPPORT due to pin conflict on GPIO 16.")
 endif()
 
 # Import Pico SDK
@@ -63,7 +51,7 @@ project(altair C CXX ASM)
 pico_sdk_init()
 
 # Import Pimoroni Pico libraries if Inky or Display 2.8 support is enabled
-if(INKY_SUPPORT OR DISPLAY_ST7789_SUPPORT OR SD_CARD_SUPPORT)
+if(INKY_SUPPORT OR DISPLAY_2_8_SUPPORT OR SD_CARD_SUPPORT)
     set(PIMORONI_PICO_PATH ${CMAKE_CURRENT_LIST_DIR}/lib/pimoroni-pico)
     include(${CMAKE_CURRENT_LIST_DIR}/lib/pimoroni-pico/pimoroni_pico_import.cmake)
     
@@ -112,39 +100,44 @@ set(ALTAIR_SOURCES
     io_ports.c
     PortDrivers/time_io.c
     PortDrivers/utility_io.c
-    PortDrivers/stats_io.c
     PortDrivers/http_io.c
     PortDrivers/http_get.c
+    PortDrivers/files_io.c
+    PortDrivers/stats_io.c
     websocket_console.c
     config.c
     comms_mgr.c
 )
 
 # Conditionally add Display 2.8 sources
+if(DISPLAY_2_8_SUPPORT)
+    list(APPEND ALTAIR_SOURCES
+        FrontPanels/display_2_8.c
+        FrontPanels/st7789_async.c
+    )
+endif()
+
+# Conditionally add ST7789 Display sources
 if(DISPLAY_ST7789_SUPPORT)
     list(APPEND ALTAIR_SOURCES
         FrontPanels/display_st7789.c
     )
-    # Select the appropriate ST7789 driver based on display type
-    if(ST7789_VARIANT STREQUAL "WAVESHARE_2" OR WAVESHARE_2_DISPLAY)
+    if(WAVESHARE_2_DISPLAY)
         list(APPEND ALTAIR_SOURCES FrontPanels/st7789vw_async.c)
-        message(STATUS "📺 Using ST7789VW driver for Waveshare 2\" display")
-        # Definition added later after target creation
     else()
         list(APPEND ALTAIR_SOURCES FrontPanels/st7789_async.c)
-        message(STATUS "📺 Using ST7789 driver for Pimoroni 2.8\" display")
     endif()
 endif()
 
 
-# Conditionally add disk controller based on storage backend
-if(REMOTE_FS_SUPPORT)
-    list(APPEND ALTAIR_SOURCES 
-        Altair8800/remote_fs.c
-        Altair8800/pico_88dcdd_remote_fs.c
-    )
-elseif(SD_CARD_SUPPORT)
+# Conditionally add disk controller based on SD card support
+if(SD_CARD_SUPPORT)
     list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card.c)
+elseif(REMOTE_FS_SUPPORT)
+    list(APPEND ALTAIR_SOURCES 
+        Altair8800/pico_88dcdd_remote_fs.c
+        Altair8800/remote_fs.c
+    )
 else()
     list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_flash.c)
 endif()
@@ -206,11 +199,18 @@ if(INKY_SUPPORT)
 endif()
 
 # Add Display 2.8 support definition if enabled
+if(DISPLAY_2_8_SUPPORT)
+    target_compile_definitions(altair PRIVATE DISPLAY_2_8_SUPPORT=1)
+endif()
+
+# Add ST7789 Support definition
 if(DISPLAY_ST7789_SUPPORT)
     target_compile_definitions(altair PRIVATE DISPLAY_ST7789_SUPPORT=1)
-    if(ST7789_VARIANT STREQUAL "WAVESHARE_2" OR WAVESHARE_2_DISPLAY)
-        target_compile_definitions(altair PRIVATE ST7789_VARIANT_WAVESHARE_2=1)
-    endif()
+endif()
+
+# Add Remote FS Support definition
+if(REMOTE_FS_SUPPORT)
+    target_compile_definitions(altair PRIVATE REMOTE_FS_SUPPORT=1)
 endif()
 
 if(SD_CARD_SUPPORT)
@@ -235,15 +235,6 @@ endif()
 
 if(WAVESHARE_2_DISPLAY)
     target_compile_definitions(altair PRIVATE WAVESHARE_2_DISPLAY=1)
-    message(STATUS "📺 Waveshare 2\" display enabled (GPIO 8/9/10/11/13)")
-endif()
-
-if(REMOTE_FS_SUPPORT)
-    target_compile_definitions(altair PRIVATE 
-        REMOTE_FS_SUPPORT=1
-        RFS_SERVER_PORT=${RFS_SERVER_PORT}
-    )
-    message(STATUS "🌐 Remote FS enabled - Server port: ${RFS_SERVER_PORT} (IP configured at runtime)")
 endif()
 
 # Make sure all CYW43 headers are visible and include Altair8800 directory
@@ -277,6 +268,14 @@ target_link_libraries(altair
     ${ALTAIR_LIBS}
 )
 
+if(DISPLAY_ST7789_SUPPORT)
+    target_link_libraries(altair
+        hardware_spi
+        hardware_dma
+        hardware_pwm
+    )
+endif()
+
 if(PICO_CYW43_SUPPORTED)
     target_link_libraries(altair pico_cyw43_arch_lwip_poll)
 endif()
@@ -291,7 +290,7 @@ if(INKY_SUPPORT)
 endif()
 
 # Link Pimoroni Display 2.8 libraries if enabled
-if(DISPLAY_ST7789_SUPPORT)
+if(DISPLAY_2_8_SUPPORT)
     target_link_libraries(altair
         st7789          # ST7789 LCD driver
         pico_graphics   # Graphics library

@@ -1,3 +1,26 @@
+# Changelog - Build 954 (2026-01-11)
+
+## 📂 Remote File Transfer (FT) Protocol v2
+- **Variable-Length Chunks**: Updated FT protocol to send `status + count + data[count]` (no padding), with `0` encoding 256 bytes.
+- **New CP/M Client**: Added `Apps/FT/FT.C` and README for the updated FT flow.
+- **Pico Port Driver**: Updated `files_io` to surface count byte and avoid false DATAREADY responses.
+- **Server Updates**: `remote_ft_server.py` now emits variable-length responses; added Docker image support and compose service on port 8090.
+- **Test Client**: Added a desktop test client under `test/ft_client`.
+
+## 🗂 Remote FS Client Identity & Docker NAT Fix
+- **INIT Payload**: Remote FS client now sends its cached IP in INIT; server uses it to select the per-client disk folder.
+- **Server Guardrails**: READ/WRITE before INIT now returns error.
+
+## 🖥 Display Build Fixes
+- **Waveshare 2"**: CMake now selects `st7789vw_async.c` when `WAVESHARE_2_DISPLAY=ON`.
+
+## 🧰 Build & Port Driver Fixes
+- **Embedded Disk Build**: Fixed missing `pico_disk.c` reference; now uses `pico_88dcdd_flash.c`.
+- **WiFi Port Drivers**: `files_io`, `http_get`, and `stats_io` are now compiled for WiFi builds regardless of disk backend.
+- **Reduced RFS Cache Spam**: Removed periodic cache stats output.
+
+---
+
 # Changelog - Build 896 (2026-01-08)
 
 ## 📺 Display Driver Architecture Refactor

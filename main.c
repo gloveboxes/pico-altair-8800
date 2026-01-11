@@ -224,7 +224,7 @@ static void setup_wifi(void)
         }
     }
 
-#if defined(REMOTE_FS_SUPPORT)
+#if defined(REMOTE_FS_SUPPORT) && !defined(SD_CARD_SUPPORT)
     // Initialize remote FS client queues BEFORE Core 1 starts polling
     rfs_client_init();
 #endif

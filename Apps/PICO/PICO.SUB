@@ -1,4 +1,4 @@
-gf -f pico/pico.c
+ft -g file://pico/pico.c
 
 cc pico
 clink pico long

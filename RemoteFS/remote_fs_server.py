@@ -7,7 +7,7 @@ Each client (identified by IP address) gets their own copy of the disk images,
 allowing multiple Altair emulators to operate independently.
 
 Protocol:
-- INIT (0x03): Initialize connection, copies disk files if first time for this client
+- INIT (0x03): Initialize connection with client IP (len + bytes), copies disk files if first time for this client
 - READ_SECTOR (0x01): drive(1) + track(1) + sector(1) -> status(1) + data(137)
 - WRITE_SECTOR (0x02): drive(1) + track(1) + sector(1) + data(137) -> status(1)
 
@@ -137,12 +137,14 @@ class DiskImage:
 class ClientSession:
     """Handles a single client connection"""
     
-    def __init__(self, conn: socket.socket, addr: tuple, client_dir: Path, disks: list):
+    def __init__(self, conn: socket.socket, addr: tuple, server: "RemoteFSServer"):
         self.conn = conn
         self.addr = addr
         self.client_ip = addr[0]
-        self.client_dir = client_dir
-        self.disks = disks
+        self.server = server
+        self.client_id = None
+        self.client_dir = None
+        self.disks = None
         self.running = True
         
     def handle(self):
@@ -188,7 +190,31 @@ class ClientSession:
     
     def _handle_init(self):
         """Handle INIT command"""
-        logger.info(f"INIT from {self.client_ip}")
+        id_len_data = self._recv_exact(1)
+        if not id_len_data:
+            return
+        id_len = id_len_data[0]
+        if id_len == 0:
+            logger.warning(f"[{self.client_ip}] INIT missing client ID")
+            self.conn.sendall(bytes([RESP_ERROR]))
+            return
+        id_bytes = self._recv_exact(id_len)
+        if not id_bytes or len(id_bytes) != id_len:
+            logger.warning(f"[{self.client_ip}] INIT client ID read failed")
+            self.conn.sendall(bytes([RESP_ERROR]))
+            return
+
+        client_id = id_bytes.decode('ascii', errors='replace').strip()
+        if not client_id:
+            logger.warning(f"[{self.client_ip}] INIT empty client ID")
+            self.conn.sendall(bytes([RESP_ERROR]))
+            return
+
+        self.client_id = client_id
+        self.client_dir = self.server.get_client_dir(client_id)
+        self.disks = self.server.get_client_disks(client_id)
+
+        logger.info(f"INIT from {self.client_ip} (id={client_id})")
         self.conn.sendall(bytes([RESP_OK]))
     
     def _handle_read_sector(self):
@@ -199,7 +225,12 @@ class ClientSession:
             return
             
         drive, track, sector = params[0], params[1], params[2]
-        
+
+        if self.disks is None:
+            logger.warning(f"[{self.client_ip}] READ before INIT")
+            self.conn.sendall(bytes([RESP_ERROR]))
+            return
+
         if drive >= MAX_DRIVES or drive >= len(self.disks):
             logger.warning(f"Invalid drive: {drive}")
             self.conn.sendall(bytes([RESP_ERROR]))
@@ -222,9 +253,14 @@ class ClientSession:
             return
             
         drive, track, sector = params[0], params[1], params[2]
-        
+
         data = self._recv_exact(SECTOR_SIZE)
         if not data:
+            return
+
+        if self.disks is None:
+            logger.warning(f"[{self.client_ip}] WRITE before INIT")
+            self.conn.sendall(bytes([RESP_ERROR]))
             return
             
         if drive >= MAX_DRIVES or drive >= len(self.disks):
@@ -250,19 +286,18 @@ class RemoteFSServer:
         self.clients_dir = clients_dir
         self.running = False
         self.server_socket = None
-        self.client_disks = {}  # client_ip -> [DiskImage, ...]
+        self.client_disks = {}  # client_id -> [DiskImage, ...]
         self.lock = threading.Lock()
         
-    def _get_client_dir(self, client_ip: str) -> Path:
+    def get_client_dir(self, client_id: str) -> Path:
         """Get the directory for a specific client, create if needed"""
-        # Sanitize IP address for use as directory name
-        safe_ip = client_ip.replace(':', '_').replace('.', '_')
-        client_dir = self.clients_dir / safe_ip
+        safe_id = client_id.replace(':', '_').replace('.', '_')
+        client_dir = self.clients_dir / safe_id
         
         with self.lock:
             if not client_dir.exists():
                 # First time for this client - copy template disks
-                logger.info(f"Creating disk folder for new client: {client_ip}")
+                logger.info(f"Creating disk folder for new client: {client_id}")
                 client_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Copy disk images from template directory
@@ -279,14 +314,14 @@ class RemoteFSServer:
                             f.write(bytes(DISK_SIZE))
                             
         return client_dir
-    
-    def _get_client_disks(self, client_ip: str) -> list:
+
+    def get_client_disks(self, client_id: str) -> list:
         """Get or create disk images for a client"""
         with self.lock:
-            if client_ip in self.client_disks:
-                return self.client_disks[client_ip]
+            if client_id in self.client_disks:
+                return self.client_disks[client_id]
                 
-        client_dir = self._get_client_dir(client_ip)
+        client_dir = self.get_client_dir(client_id)
         
         disks = []
         for disk_name in DISK_NAMES:
@@ -294,7 +329,7 @@ class RemoteFSServer:
             disks.append(DiskImage(disk_path))
             
         with self.lock:
-            self.client_disks[client_ip] = disks
+            self.client_disks[client_id] = disks
             
         return disks
     
@@ -337,12 +372,8 @@ class RemoteFSServer:
                     # Disable Nagle's algorithm for lower latency
                     conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     
-                    # Get or create disk images for this client
-                    disks = self._get_client_disks(client_ip)
-                    client_dir = self._get_client_dir(client_ip)
-                    
                     # Handle client in a new thread
-                    session = ClientSession(conn, addr, client_dir, disks)
+                    session = ClientSession(conn, addr, self)
                     thread = threading.Thread(target=session.handle, daemon=True)
                     thread.start()
                     

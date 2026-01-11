@@ -14,6 +14,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 #include "pico/cyw43_arch.h"
+#include "wifi.h"
 #include "pico/util/queue.h"
 
 // Server port (IP is configured via config module at runtime)
@@ -210,34 +211,6 @@ void rfs_cache_print_stats(void)
     }
 }
 
-// Periodic stats reporting
-#define RFS_CACHE_STATS_INTERVAL_MS 30000 // Report every 30 seconds
-static volatile bool rfs_cache_stats_pending = false;
-static struct repeating_timer rfs_cache_stats_timer;
-
-static bool rfs_cache_stats_timer_callback(struct repeating_timer* t)
-{
-    (void)t;
-    rfs_cache_stats_pending = true;
-    return true; // Keep timer running
-}
-
-// Check and print stats if timer fired (call from poll)
-static void rfs_cache_check_stats(void)
-{
-    if (rfs_cache_stats_pending)
-    {
-        rfs_cache_stats_pending = false;
-        uint32_t total = rfs_cache_hits + rfs_cache_misses;
-        if (total > 0)
-        {
-            printf("[RFS_CACHE] Stats - Hits: %u, Misses: %u, Rate: %u%%, Write skips: %u\n", (unsigned)rfs_cache_hits,
-                   (unsigned)rfs_cache_misses, (unsigned)((rfs_cache_hits * 100) / total),
-                   (unsigned)rfs_cache_write_skips);
-        }
-    }
-}
-
 // Forward declarations
 static err_t rfs_tcp_connected_cb(void* arg, struct tcp_pcb* tpcb, err_t err);
 static err_t rfs_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, err_t err);
@@ -269,8 +242,6 @@ void rfs_client_init(void)
     // Initialize cache
     rfs_cache_init();
 
-    // Start periodic cache stats timer
-    add_repeating_timer_ms(RFS_CACHE_STATS_INTERVAL_MS, rfs_cache_stats_timer_callback, NULL, &rfs_cache_stats_timer);
 }
 
 // ============================================================================
@@ -279,9 +250,6 @@ void rfs_client_init(void)
 
 void rfs_client_poll(void)
 {
-    // Check if cache stats should be printed
-    rfs_cache_check_stats();
-
     // Check for timeout on operations
     if (client.request_in_progress)
     {
@@ -578,8 +546,26 @@ static void rfs_send_init(void)
     if (client.pcb == NULL)
         return;
 
-    uint8_t cmd = RFS_CMD_INIT;
-    err_t err = tcp_write(client.pcb, &cmd, 1, TCP_WRITE_FLAG_COPY);
+    const char* ip = wifi_get_ip_address();
+    if (ip == NULL || ip[0] == '\0')
+    {
+        rfs_set_error("Cached IP not available for INIT");
+        return;
+    }
+
+    size_t ip_len = strlen(ip);
+    if (ip_len == 0 || ip_len > 15)
+    {
+        rfs_set_error("Invalid IP length for INIT");
+        return;
+    }
+
+    uint8_t buf[1 + 1 + 16];
+    buf[0] = RFS_CMD_INIT;
+    buf[1] = (uint8_t)ip_len;
+    memcpy(&buf[2], ip, ip_len);
+
+    err_t err = tcp_write(client.pcb, buf, 2 + ip_len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
     {
         rfs_set_error("Failed to send INIT");

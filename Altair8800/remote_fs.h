@@ -17,6 +17,7 @@
 #define RFS_MAX_DRIVES 4
 
 // Protocol commands (from remote_fs_server.py)
+// INIT payload: [len:1][client_ip:len]
 #define RFS_CMD_READ_SECTOR 0x01
 #define RFS_CMD_WRITE_SECTOR 0x02
 #define RFS_CMD_INIT 0x03

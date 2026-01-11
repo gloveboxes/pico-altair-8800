@@ -1,9 +1,9 @@
-gf -f sdk/dxtimer.c
-gf -f sdk/dxtimer.h
-gf -f sdk/dxterm.c
-gf -f sdk/dxterm.h
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
+ft -g file://sdk/dxterm.c
+ft -g file://sdk/dxterm.h
 
-gf -f breakout/breakout.c
+ft -g file://breakout/breakout.c
 
 cc dxtimer
 cc dxterm
@@ -13,4 +13,5 @@ clink breakout dxterm dxtimer
 a:pip a:breakout.com=breakout.com
 
 era dx*.*
-era breakout.*
+era breakout.c
+submit breakout

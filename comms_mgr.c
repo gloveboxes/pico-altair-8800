@@ -7,6 +7,7 @@
 #include "pico/stdlib.h"
 
 #include "PortDrivers/http_io.h"
+#include "PortDrivers/files_io.h"
 #include "websocket_console.h"
 
 // Enable WiFi/WebSocket functionality only if board has WiFi capability
@@ -16,13 +17,11 @@
 #include "cyw43.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
-#include "lwip/stats.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "wifi.h"
 #include "ws.h"
-
-#if defined(REMOTE_FS_SUPPORT)
+#ifdef REMOTE_FS_SUPPORT
 #include "Altair8800/remote_fs.h"
 #endif
 
@@ -50,28 +49,6 @@ static struct repeating_timer ws_output_timer;
 
 // Timer for periodic WebSocket input
 static struct repeating_timer ws_input_timer;
-
-// Timer for lwIP stats reporting
-static struct repeating_timer lwip_stats_timer;
-#define LWIP_STATS_INTERVAL_MS 30000 // 30 seconds
-
-// lwIP stats callback - fires every 30 seconds
-static bool lwip_stats_timer_callback(struct repeating_timer* t)
-{
-    (void)t;
-#if MEM_STATS || MEMP_STATS
-    printf(
-        "[LWIP] Heap max:%u err:%u | PBUF:%u/%u(max %u,err %u) | SEG:%u/%u(max %u,err %u) | PCB:%u/%u(max %u,err %u)\n",
-        (unsigned)lwip_stats.mem.max, (unsigned)lwip_stats.mem.err, (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->used,
-        (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->avail, (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->max,
-        (unsigned)lwip_stats.memp[MEMP_PBUF_POOL]->err, (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->used,
-        (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->avail, (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->max,
-        (unsigned)lwip_stats.memp[MEMP_TCP_SEG]->err, (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->used,
-        (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->avail, (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->max,
-        (unsigned)lwip_stats.memp[MEMP_TCP_PCB]->err);
-#endif
-    return true;
-}
 
 // Timer callback for output - fires every 20ms
 static bool ws_output_timer_callback(struct repeating_timer* t)
@@ -162,6 +139,20 @@ void websocket_console_start(void)
 
     websocket_queue_init();
     http_io_init(); // Initialize HTTP file transfer queues
+    files_io_init(); // Initialize file transfer client queues
+
+#ifdef REMOTE_FS_SUPPORT
+    // Initialize remote FS client queues
+    rfs_client_init();
+#endif
+
+    // Start the WebSocket output timer (20ms fixed interval)
+    add_repeating_timer_ms(-WS_OUTPUT_TIMER_INTERVAL_MS, ws_output_timer_callback, NULL, &ws_output_timer);
+    printf("Started WebSocket output timer (%dms interval)\n", WS_OUTPUT_TIMER_INTERVAL_MS);
+
+    // Start the WebSocket input timer (10ms fixed interval)
+    add_repeating_timer_ms(-WS_INPUT_TIMER_INTERVAL_MS, ws_input_timer_callback, NULL, &ws_input_timer);
+    printf("Started WebSocket input timer (%dms interval)\n", WS_INPUT_TIMER_INTERVAL_MS);
 
     // Launch core 1 which will handle all Wi-Fi and WebSocket operations
     multicore_launch_core1(websocket_console_core1_entry);
@@ -221,17 +212,6 @@ static void websocket_console_core1_entry(void)
         return;
     }
 
-    // Start WebSocket timers on Core 1 (after WiFi init)
-    add_repeating_timer_ms(-WS_OUTPUT_TIMER_INTERVAL_MS, ws_output_timer_callback, NULL, &ws_output_timer);
-    printf("[Core1] Started WebSocket output timer (%dms interval)\n", WS_OUTPUT_TIMER_INTERVAL_MS);
-
-    add_repeating_timer_ms(-WS_INPUT_TIMER_INTERVAL_MS, ws_input_timer_callback, NULL, &ws_input_timer);
-    printf("[Core1] Started WebSocket input timer (%dms interval)\n", WS_INPUT_TIMER_INTERVAL_MS);
-
-    // Start lwIP stats timer for memory monitoring
-    add_repeating_timer_ms(-LWIP_STATS_INTERVAL_MS, lwip_stats_timer_callback, NULL, &lwip_stats_timer);
-    printf("[Core1] Started lwIP stats timer (%ds interval)\n", LWIP_STATS_INTERVAL_MS / 1000);
-
     // Mark console as initialized only after successful network stack initialization
     console_initialized = true;
     printf("[Core1] WebSocket server running, entering poll loop\n");
@@ -241,10 +221,12 @@ static void websocket_console_core1_entry(void)
     {
         cyw43_arch_poll();
         ws_poll(&pending_ws_input, &pending_ws_output);
-        http_poll(); // Poll for HTTP file transfer requests
-#if defined(REMOTE_FS_SUPPORT)
-        rfs_client_poll(); // Poll remote FS client
+#ifdef REMOTE_FS_SUPPORT
+        // Poll remote FS client
+        rfs_client_poll();
 #endif
+        http_poll(); // Poll for HTTP file transfer requests
+        ft_client_poll(); // Poll file transfer client
         tight_loop_contents();
     }
 }
