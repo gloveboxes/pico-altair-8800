@@ -24,8 +24,8 @@
 
 // Cache configuration
 #if defined(PICO_RP2040)
-// Pico W has 264KB RAM - 50KB cache (~400 sectors)
-#define RFS_CACHE_SIZE_BYTES (50 * 1024)
+// Pico W has 264KB RAM - 55B cache (~400 sectors)
+#define RFS_CACHE_SIZE_BYTES (55 * 1024)
 #else
 // RP2350 (Pico 2 W) has 520KB RAM - we can afford a large 150KB cache (~1,170 sectors)
 #define RFS_CACHE_SIZE_BYTES (150 * 1024)

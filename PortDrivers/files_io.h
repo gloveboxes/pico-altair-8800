@@ -11,7 +11,6 @@
 typedef enum
 {
     FT_CMD_NOP = 0,           // No operation
-    FT_CMD_SET_FILENAME = 1,  // Start filename transfer
     FT_CMD_FILENAME_CHAR = 2, // Send next filename character
     FT_CMD_REQUEST_CHUNK = 3, // Request next 256-byte chunk
     FT_CMD_CLOSE = 4          // Close file transfer

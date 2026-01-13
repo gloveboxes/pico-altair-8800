@@ -21,7 +21,6 @@
 #endif
 
 // Protocol commands (to server)
-#define FT_PROTO_SET_FILENAME 0x01
 #define FT_PROTO_GET_CHUNK 0x02
 #define FT_PROTO_CLOSE 0x03
 
@@ -58,7 +57,6 @@ static void files_output_data(uint8_t data);
 typedef enum
 {
     FT_REQ_CONNECT = 0,
-    FT_REQ_SET_FILENAME,
     FT_REQ_GET_CHUNK,
     FT_REQ_CLOSE
 } ft_request_type_t;
@@ -67,7 +65,8 @@ typedef enum
 typedef struct
 {
     ft_request_type_t type;
-    uint8_t data[257]; // filename (null-terminated) or empty
+    uint32_t offset;    // file offset for GET_CHUNK (stateless protocol)
+    uint8_t data[257];  // filename (null-terminated) or empty
 } ft_request_t;
 
 // Response structure (Core 1 -> Core 0)
@@ -134,6 +133,9 @@ static struct
     size_t chunk_len;      // bytes available in this chunk
     size_t chunk_position; // current read position
 
+    // File position tracking for stateless protocol
+    uint32_t file_offset;
+
     ft_status_t status;
 } port_state;
 
@@ -166,7 +168,7 @@ void files_io_init(void)
     memset(&port_state, 0, sizeof(port_state));
     port_state.status = FT_STATUS_IDLE;
 
-    printf("[FT] File transfer port driver initialized\n");
+    printf("[FT] File transfer port driver initialized (stateless protocol v3)\n");
 }
 
 // ============================================================================
@@ -195,27 +197,6 @@ size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length)
         case FT_CMD_NOP:
             break;
 
-        case FT_CMD_SET_FILENAME:
-        {
-            // Increment session ID to invalidate any in-flight responses
-            // This is done atomically on Core 0 before Core 1 can send new responses
-            uint16_t new_session = (ft_client.session_id + 1) & 0xFFFF;
-            ft_client.session_id = new_session;
-
-            // Drain any unread responses from previous session
-            ft_response_t dummy;
-            while (queue_try_remove(&ft_response_queue, &dummy))
-                ;
-
-            // Reset state
-            memset(port_state.filename, 0, sizeof(port_state.filename));
-            port_state.filename_idx = 0;
-            port_state.chunk_len = 0;
-            port_state.chunk_position = 0;
-            port_state.status = FT_STATUS_IDLE;
-            break;
-        }
-
         case FT_CMD_FILENAME_CHAR:
             // This command expects the character to follow via another OUT
             // Actually, we need to handle this differently - the character comes with the command
@@ -223,8 +204,16 @@ size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length)
             break;
 
         case FT_CMD_REQUEST_CHUNK:
-            // Request next chunk from server
+            // If we still have data in buffer, don't request more
+            if (port_state.chunk_len > 0 && port_state.chunk_position < port_state.chunk_len)
+            {
+                break;
+            }
+
+            // Request next chunk from server (stateless: send offset + filename)
             request.type = FT_REQ_GET_CHUNK;
+            request.offset = port_state.file_offset;
+            strncpy((char*)request.data, port_state.filename, sizeof(request.data) - 1);
 
             // Reset state BEFORE queuing to prevent race where polling sees old state
             port_state.chunk_len = 0;
@@ -238,8 +227,9 @@ size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length)
             break;
 
         case FT_CMD_CLOSE:
-            // Close file
+            // Close file and evict from cache
             request.type = FT_REQ_CLOSE;
+            strncpy((char*)request.data, port_state.filename, sizeof(request.data) - 1);
             queue_try_add(&ft_request_queue, &request);
             port_state.status = FT_STATUS_IDLE;
             break;
@@ -256,23 +246,18 @@ static void files_output_data(uint8_t data)
 {
     if (data == 0)
     {
-        // Null terminator - send filename to server
+        // Null terminator - filename complete
         port_state.filename[port_state.filename_idx] = '\0';
 
-        ft_request_t request;
-        memset(&request, 0, sizeof(request));
-        request.type = FT_REQ_SET_FILENAME;
-        strncpy((char*)request.data, port_state.filename, sizeof(request.data) - 1);
-
-        // Reset chunk state for new file
+        // Reset state for new file
         port_state.chunk_len = 0;
         port_state.chunk_position = 0;
-        port_state.status = FT_STATUS_BUSY;
+        port_state.file_offset = 0;
+        port_state.filename_idx = 0;  // Reset for next filename
+        port_state.status = FT_STATUS_IDLE;
 
-        if (!queue_try_add(&ft_request_queue, &request))
-        {
-            port_state.status = FT_STATUS_ERROR;
-        }
+        // Note: In stateless protocol, we don't send filename to server here.
+        // The filename will be sent with each GET_CHUNK request.
     }
     else if (port_state.filename_idx < sizeof(port_state.filename) - 1)
     {
@@ -311,6 +296,9 @@ uint8_t files_input(uint8_t port)
                         }
                         port_state.chunk_len = response.len + 1;
                         port_state.chunk_position = 0;
+                        
+                        // Update file offset for stateless protocol
+                        port_state.file_offset += response.len;
                     }
                     else
                     {
@@ -357,6 +345,9 @@ uint8_t files_input(uint8_t port)
                             }
                             port_state.chunk_len = response.len + 1;
                             port_state.chunk_position = 0;
+                            
+                            // Update file offset for stateless protocol
+                            port_state.file_offset += response.len;
                         }
                         else
                         {
@@ -449,30 +440,37 @@ void ft_client_poll(void)
 
                     switch (request.type)
                     {
-                        case FT_REQ_SET_FILENAME:
+                        case FT_REQ_GET_CHUNK:
                         {
-                            // Send: CMD + filename + null
-                            send_buf[0] = FT_PROTO_SET_FILENAME;
+                            // Stateless protocol: send command + offset + filename
+                            send_buf[0] = FT_PROTO_GET_CHUNK;
+                            
+                            // Send offset (4 bytes, little-endian)
+                            send_buf[1] = request.offset & 0xFF;
+                            send_buf[2] = (request.offset >> 8) & 0xFF;
+                            send_buf[3] = (request.offset >> 16) & 0xFF;
+                            send_buf[4] = (request.offset >> 24) & 0xFF;
+                            
+                            // Send filename with null terminator
                             size_t name_len = strlen((char*)request.data);
-                            memcpy(&send_buf[1], request.data, name_len + 1); // include null
-                            send_len = 1 + name_len + 1;
-                            ft_client.expected_len = 1; // status only
-                            printf("[FT] Opening file: %s\n", request.data);
+                            memcpy(&send_buf[5], request.data, name_len + 1);
+                            send_len = 5 + name_len + 1;
+                            
+                            ft_client.expected_len = 2; // status + count (payload length determined by count)
                             break;
                         }
 
-                        case FT_REQ_GET_CHUNK:
-                            send_buf[0] = FT_PROTO_GET_CHUNK;
-                            send_len = 1;
-                            ft_client.expected_len = 2; // status + count (payload length determined by count)
-                            break;
-
                         case FT_REQ_CLOSE:
+                        {
+                            // Send command + filename for cache eviction
                             send_buf[0] = FT_PROTO_CLOSE;
-                            send_len = 1;
+                            size_t name_len = strlen((char*)request.data);
+                            memcpy(&send_buf[1], request.data, name_len + 1);
+                            send_len = 1 + name_len + 1;
                             ft_client.expected_len = 1; // status only
                             printf("[FT] Closing file\n");
                             break;
+                        }
 
                         default:
                             ft_client.request_in_progress = false;

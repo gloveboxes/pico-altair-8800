@@ -12,9 +12,13 @@
 #ifndef LWIP_SOCKET
 #define LWIP_SOCKET 0 // Disable BSD-style socket API
 #endif
-#define MEM_LIBC_MALLOC 0         // Use lwIP's internal memory pool
-#define MEM_ALIGNMENT 4           // Memory alignment (4 bytes for ARM)
-#define MEM_SIZE 65536            // Size of the heap memory (bytes) - Increased to 64KB to stop allocation errors
+#define MEM_LIBC_MALLOC 0 // Use lwIP's internal memory pool
+#define MEM_ALIGNMENT 4   // Memory alignment (4 bytes for ARM)
+#if defined(PICO_RP2040)
+#define MEM_SIZE 51200 // Size of the heap memory (bytes) - Increased to 64KB to stop allocation errors
+#else
+#define MEM_SIZE 65536 // Size of the heap memory (bytes) - Increased to 64KB for RP2350
+#endif
 #define MEMP_NUM_TCP_SEG 32       // Number of simultaneously queued TCP segments - Increased for larger responses
 #define MEMP_NUM_ARP_QUEUE 10     // Number of packets queued waiting for ARP resolution
 #define MEMP_NUM_TCP_PCB 16       // Number of simultaneously active TCP connections - Increased to handle TIME_WAIT
