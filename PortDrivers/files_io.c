@@ -50,8 +50,11 @@
 #define FT_MAX_RETRIES 3
 #define FT_RECONNECT_DELAY_MS 500
 
-// Forward declarations
+// Forward declarations (before typedefs)
+static size_t files_output_command(uint8_t data);
 static void files_output_data(uint8_t data);
+static uint8_t files_input_status(void);
+static uint8_t files_input_data(void);
 
 // Request types for inter-core queue
 typedef enum
@@ -139,7 +142,8 @@ static struct
     ft_status_t status;
 } port_state;
 
-// Forward declarations
+// Forward declarations (after typedefs)
+static bool files_process_response(ft_response_t* response);
 static err_t ft_tcp_connected_cb(void* arg, struct tcp_pcb* tpcb, err_t err);
 static err_t ft_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, err_t err);
 static void ft_tcp_err_cb(void* arg, err_t err);
@@ -180,27 +184,28 @@ size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length)
     (void)buffer;
     (void)buffer_length;
 
-    if (port == 61)
+    switch (port)
     {
-        files_output_data(data);
-        return 0;
+        case 60:
+            return files_output_command(data);
+        case 61:
+            files_output_data(data);
+            return 0;
+        default:
+            return 0;
     }
+}
 
-    if (port != 60)
-        return 0;
-
+// Command handler for port 60
+static size_t files_output_command(uint8_t data)
+{
     ft_request_t request;
-    memset(&request, 0, sizeof(request));
 
     switch ((ft_command_t)data)
     {
         case FT_CMD_NOP:
-            break;
-
         case FT_CMD_FILENAME_CHAR:
-            // This command expects the character to follow via another OUT
-            // Actually, we need to handle this differently - the character comes with the command
-            // Let's use port 61 for sending filename characters
+            // NOP and FILENAME_CHAR don't require action here
             break;
 
         case FT_CMD_REQUEST_CHUNK:
@@ -213,7 +218,10 @@ size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length)
             // Request next chunk from server (stateless: send offset + filename)
             request.type = FT_REQ_GET_CHUNK;
             request.offset = port_state.file_offset;
-            strncpy((char*)request.data, port_state.filename, sizeof(request.data) - 1);
+            
+            // Use memcpy with known length (faster than strncpy)
+            size_t name_len = strlen(port_state.filename);
+            memcpy(request.data, port_state.filename, name_len + 1);
 
             // Reset state BEFORE queuing to prevent race where polling sees old state
             port_state.chunk_len = 0;
@@ -229,7 +237,11 @@ size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length)
         case FT_CMD_CLOSE:
             // Close file and evict from cache
             request.type = FT_REQ_CLOSE;
-            strncpy((char*)request.data, port_state.filename, sizeof(request.data) - 1);
+            
+            // Use memcpy with known length (faster than strncpy)
+            name_len = strlen(port_state.filename);
+            memcpy(request.data, port_state.filename, name_len + 1);
+            
             queue_try_add(&ft_request_queue, &request);
             port_state.status = FT_STATUS_IDLE;
             break;
@@ -241,7 +253,7 @@ size_t files_output(int port, uint8_t data, char* buffer, size_t buffer_length)
     return 0;
 }
 
-// Special handler for filename/data output on port 61
+// Data handler for port 61
 static void files_output_data(uint8_t data)
 {
     if (data == 0)
@@ -273,97 +285,93 @@ static void files_output_data(uint8_t data)
     }
 }
 
-uint8_t files_input(uint8_t port)
+// Helper to process response from queue (returns true if response was processed)
+static bool files_process_response(ft_response_t* response)
 {
-    if (port == 60)
+    if (!queue_try_remove(&ft_response_queue, response))
     {
-        // Status port
-        // Check for new response from Core 1
-        if (port_state.chunk_len == 0 || port_state.chunk_position >= port_state.chunk_len)
+        return false;
+    }
+
+    // Verify response matches current session (discard stale responses)
+    if (response->session_id != ft_client.session_id)
+    {
+        return false;
+    }
+
+    if (response->has_count)
+    {
+        port_state.chunk_buffer[0] = response->count;
+        if (response->len > 0)
+        {
+            memcpy(&port_state.chunk_buffer[1], response->data, response->len);
+        }
+        port_state.chunk_len = response->len + 1;
+        port_state.chunk_position = 0;
+        
+        // Update file offset for stateless protocol
+        port_state.file_offset += response->len;
+    }
+    else
+    {
+        port_state.chunk_len = 0;
+        port_state.chunk_position = 0;
+    }
+    port_state.status = response->status;
+    
+    return true;
+}
+
+// Status input handler for port 60
+static uint8_t files_input_status(void)
+{
+    // Check for new response from Core 1 only if buffer is depleted
+    if (port_state.chunk_len == 0 || port_state.chunk_position >= port_state.chunk_len)
+    {
+        ft_response_t response;
+        files_process_response(&response);
+    }
+
+    // If data is available in the buffer, always report DATAREADY
+    // This prevents the CP/M app from seeing EOF before reading the last chunk
+    if (port_state.chunk_position < port_state.chunk_len && port_state.status != FT_STATUS_ERROR)
+    {
+        return FT_STATUS_DATAREADY;
+    }
+
+    return port_state.status;
+}
+
+// Data input handler for port 61
+static uint8_t files_input_data(void)
+{
+    // Read byte from chunk
+    if (port_state.chunk_position < port_state.chunk_len)
+    {
+        uint8_t byte = port_state.chunk_buffer[port_state.chunk_position++];
+
+        // If chunk depleted, try to get next response
+        if (port_state.chunk_position >= port_state.chunk_len)
         {
             ft_response_t response;
-            if (queue_try_remove(&ft_response_queue, &response))
-            {
-                // Verify response matches current session (discard stale responses)
-                if (response.session_id == ft_client.session_id)
-                {
-                    if (response.has_count)
-                    {
-                        port_state.chunk_buffer[0] = response.count;
-                        if (response.len > 0)
-                        {
-                            memcpy(&port_state.chunk_buffer[1], response.data, response.len);
-                        }
-                        port_state.chunk_len = response.len + 1;
-                        port_state.chunk_position = 0;
-                        
-                        // Update file offset for stateless protocol
-                        port_state.file_offset += response.len;
-                    }
-                    else
-                    {
-                        port_state.chunk_len = 0;
-                        port_state.chunk_position = 0;
-                    }
-                    port_state.status = response.status;
-                }
-                // Silently discard stale responses from previous session
-            }
+            files_process_response(&response);
         }
-
-        // If data is available in the buffer, always report DATAREADY
-        // This prevents the CP/M app from seeing EOF before reading the last chunk
-        if (port_state.chunk_position < port_state.chunk_len && port_state.status != FT_STATUS_ERROR)
-        {
-            return FT_STATUS_DATAREADY;
-        }
-
-        return port_state.status;
+        return byte;
     }
-    else if (port == 61)
-    {
-        // Data port - read byte from chunk
-        if (port_state.chunk_position < port_state.chunk_len)
-        {
-            uint8_t byte = port_state.chunk_buffer[port_state.chunk_position++];
-
-            // If chunk depleted, try to get next response
-            if (port_state.chunk_position >= port_state.chunk_len)
-            {
-                ft_response_t response;
-                if (queue_try_remove(&ft_response_queue, &response))
-                {
-                    // Verify response matches current session
-                    if (response.session_id == ft_client.session_id)
-                    {
-                        if (response.has_count)
-                        {
-                            port_state.chunk_buffer[0] = response.count;
-                            if (response.len > 0)
-                            {
-                                memcpy(&port_state.chunk_buffer[1], response.data, response.len);
-                            }
-                            port_state.chunk_len = response.len + 1;
-                            port_state.chunk_position = 0;
-                            
-                            // Update file offset for stateless protocol
-                            port_state.file_offset += response.len;
-                        }
-                        else
-                        {
-                            port_state.chunk_len = 0;
-                            port_state.chunk_position = 0;
-                        }
-                        port_state.status = response.status;
-                    }
-                }
-            }
-            return byte;
-        }
-        return 0x00;
-    }
-
     return 0x00;
+}
+
+uint8_t files_input(uint8_t port)
+{
+    switch (port)
+    {
+        case 60:
+            return files_input_status();
+        case 61:
+            return files_input_data();
+        default:
+            return 0x00;
+    }
 }
 
 // Extended output handler that handles both command and data ports
@@ -682,70 +690,47 @@ static err_t ft_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, err
 
 static void ft_handle_response(void)
 {
-    ft_response_t response;
-    memset(&response, 0, sizeof(response));
-
-    // Tag response with current session ID
-    response.session_id = ft_client.session_id;
-
     uint8_t server_status = ft_client.recv_buf[0];
+    
+    // Build response structure
+    ft_response_t response = {
+        .session_id = ft_client.session_id,
+        .has_count = false,
+        .count = 0,
+        .len = 0
+    };
 
+    // Determine response status based on request type and server status
     if (ft_client.current_request.type == FT_REQ_GET_CHUNK)
     {
-        switch (server_status)
-        {
-            case FT_PROTO_RESP_OK:
-                response.status = FT_STATUS_DATAREADY;
-                break;
-            case FT_PROTO_RESP_EOF:
-                response.status = FT_STATUS_EOF;
-                break;
-            default:
-                response.status = FT_STATUS_ERROR;
-                break;
-        }
+        response.status = (server_status == FT_PROTO_RESP_OK) ? FT_STATUS_DATAREADY :
+                         (server_status == FT_PROTO_RESP_EOF) ? FT_STATUS_EOF : FT_STATUS_ERROR;
     }
     else
     {
         response.status = (server_status == FT_PROTO_RESP_ERROR) ? FT_STATUS_ERROR : FT_STATUS_IDLE;
     }
 
-    // Copy chunk data if this was a GET_CHUNK response
+    // Copy chunk data if this was a GET_CHUNK response with payload
     if (ft_client.current_request.type == FT_REQ_GET_CHUNK && ft_client.recv_len >= 2)
     {
-        // Format: [status:1][count:1][data:count]
-        uint8_t count_byte = ft_client.recv_buf[1];
-        size_t valid_bytes = 0;
-
         bool has_payload = (server_status == FT_PROTO_RESP_OK || server_status == FT_PROTO_RESP_EOF);
-
+        
         if (has_payload)
         {
-            valid_bytes = (count_byte == 0) ? 256 : count_byte;
+            // Format: [status:1][count:1][data:count]
+            uint8_t count_byte = ft_client.recv_buf[1];
+            size_t valid_bytes = (count_byte == 0) ? 256 : count_byte;
+            
+            response.len = (valid_bytes > FT_CHUNK_SIZE) ? FT_CHUNK_SIZE : valid_bytes;
+            response.has_count = true;
+            response.count = count_byte;
+            
+            if (response.len > 0)
+            {
+                memcpy(response.data, &ft_client.recv_buf[2], response.len);
+            }
         }
-        else
-        {
-            // For ERROR, ignore payload
-            valid_bytes = 0;
-        }
-
-        response.len = valid_bytes;
-        if (response.len > FT_CHUNK_SIZE)
-            response.len = FT_CHUNK_SIZE;
-
-        response.has_count = has_payload;
-        response.count = has_payload ? count_byte : 0;
-
-        if (response.len > 0 && has_payload)
-        {
-            memcpy(response.data, &ft_client.recv_buf[2], response.len);
-        }
-    }
-    else
-    {
-        response.has_count = false;
-        response.count = 0;
-        response.len = 0;
     }
 
     queue_try_add(&ft_response_queue, &response);
