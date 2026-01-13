@@ -91,7 +91,7 @@ for BOARD in "${BOARDS[@]}"; do
 
     # Add Waveshare 2" display support
     if [[ "$BOARD" == *"_waveshare2"* ]]; then
-        CMAKE_OPTS="$CMAKE_OPTS -DST7789_VARIANT=WAVESHARE_2"
+        CMAKE_OPTS="$CMAKE_OPTS -DWAVESHARE_2_DISPLAY=ON"
     fi
     
     # Add display support flags
