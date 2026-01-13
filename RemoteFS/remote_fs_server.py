@@ -25,7 +25,11 @@ import threading
 import argparse
 import logging
 import mmap
+import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+from collections import deque
 
 # Protocol constants
 CMD_READ_SECTOR = 0x01
@@ -63,6 +67,8 @@ class DiskImage:
         self.lock = threading.Lock()
         self._file = None
         self._mmap = None
+        self._last_flush = time.time()
+        self._dirty = False
         self._open()
     
     def _open(self):
@@ -84,12 +90,20 @@ class DiskImage:
     
     def close(self):
         """Close the memory mapping and file"""
-        if self._mmap:
-            self._mmap.close()
-            self._mmap = None
-        if self._file:
-            self._file.close()
-            self._file = None
+        with self.lock:
+            if self._mmap and self._dirty:
+                try:
+                    # Force synchronous flush before closing
+                    self._mmap.flush()
+                except Exception as e:
+                    logger.error(f"Error flushing on close: {e}")
+                    
+            if self._mmap:
+                self._mmap.close()
+                self._mmap = None
+            if self._file:
+                self._file.close()
+                self._file = None
         
     def read_sector(self, track: int, sector: int) -> bytes:
         """Read a sector from the disk image"""
@@ -127,7 +141,15 @@ class DiskImage:
         with self.lock:
             try:
                 self._mmap[offset:offset + SECTOR_SIZE] = data
-                self._mmap.flush()  # Sync to disk
+                self._dirty = True
+                
+                # Flush every 2 seconds or immediately if it's been a while
+                now = time.time()
+                if now - self._last_flush > 2.0:
+                    self._mmap.flush(0, 0)  # MS_ASYNC: non-blocking async flush
+                    self._last_flush = now
+                    self._dirty = False
+                    
                 return True
             except Exception as e:
                 logger.error(f"Error writing sector: {e}")
@@ -146,6 +168,8 @@ class ClientSession:
         self.client_dir = None
         self.disks = None
         self.running = True
+        # Set socket timeout to 300 seconds (5 minutes) to detect hung connections
+        self.conn.settimeout(300)
         
     def handle(self):
         """Main handler loop for client connection"""
@@ -180,13 +204,14 @@ class ClientSession:
     
     def _recv_exact(self, size: int) -> bytes:
         """Receive exactly 'size' bytes from the connection"""
-        data = b''
-        while len(data) < size:
-            chunk = self.conn.recv(size - len(data))
-            if not chunk:
+        try:
+            # Use MSG_WAITALL for more efficient single recv call
+            data = self.conn.recv(size, socket.MSG_WAITALL)
+            if len(data) != size:
                 return None
-            data += chunk
-        return data
+            return data
+        except (socket.error, OSError):
+            return None
     
     def _handle_init(self):
         """Handle INIT command"""
@@ -288,6 +313,8 @@ class RemoteFSServer:
         self.server_socket = None
         self.client_disks = {}  # client_id -> [DiskImage, ...]
         self.lock = threading.Lock()
+        # Thread pool for handling clients (max 50 concurrent connections)
+        self.executor = ThreadPoolExecutor(max_workers=50, thread_name_prefix="client-")
         
     def get_client_dir(self, client_id: str) -> Path:
         """Get the directory for a specific client, create if needed"""
@@ -355,8 +382,14 @@ class RemoteFSServer:
         # Create server socket
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        # Increase socket buffer sizes for better throughput (1MB each)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
+        
         self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(5)
+        # Increased backlog from 5 to 128 to handle connection bursts
+        self.server_socket.listen(128)
         
         self.running = True
         logger.info(f"Remote FS Server listening on {self.host}:{self.port}")
@@ -369,13 +402,20 @@ class RemoteFSServer:
                     conn, addr = self.server_socket.accept()
                     client_ip = addr[0]
                     
-                    # Disable Nagle's algorithm for lower latency
-                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    # Optimize socket for low latency and reliability
+                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Disable Nagle's algorithm
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)   # Enable keepalive
                     
-                    # Handle client in a new thread
+                    # Increase client socket buffer sizes (256KB each, suitable for embedded clients)
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 256 * 1024)
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 256 * 1024)
+                    
+                    # Configure graceful shutdown (wait up to 1 second for pending data)
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 1))
+                    
+                    # Handle client using thread pool (more efficient than creating threads)
                     session = ClientSession(conn, addr, self)
-                    thread = threading.Thread(target=session.handle, daemon=True)
-                    thread.start()
+                    self.executor.submit(session.handle)
                     
                 except KeyboardInterrupt:
                     break
@@ -386,8 +426,21 @@ class RemoteFSServer:
     def stop(self):
         """Stop the server"""
         self.running = False
+        
+        # Shutdown thread pool
+        logger.info("Shutting down thread pool...")
+        self.executor.shutdown(wait=True, cancel_futures=False)
+        
+        # Flush and close all disk images
+        logger.info("Flushing disk images...")
+        with self.lock:
+            for client_id, disks in self.client_disks.items():
+                for disk in disks:
+                    disk.close()
+        
         if self.server_socket:
             self.server_socket.close()
+            
         logger.info("Server stopped")
 
 
