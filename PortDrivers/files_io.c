@@ -59,8 +59,7 @@ static uint8_t files_input_data(void);
 // Request types for inter-core queue
 typedef enum
 {
-    FT_REQ_CONNECT = 0,
-    FT_REQ_GET_CHUNK,
+    FT_REQ_GET_CHUNK = 0,
     FT_REQ_CLOSE
 } ft_request_type_t;
 
@@ -80,7 +79,6 @@ typedef struct
     size_t len; // actual bytes in this chunk (0-256)
     uint8_t count; // raw count byte (0 encodes 256)
     bool has_count;
-    uint16_t session_id; // to detect stale responses
 } ft_response_t;
 
 // Client state machine
@@ -88,7 +86,6 @@ typedef enum
 {
     FT_STATE_DISCONNECTED = 0,
     FT_STATE_CONNECTING,
-    FT_STATE_CONNECTED,
     FT_STATE_READY,
     FT_STATE_WAITING_RESPONSE,
     FT_STATE_RECONNECTING,
@@ -120,9 +117,6 @@ static struct
     // Retry state
     uint8_t retry_count;
     uint32_t reconnect_start_time;
-
-    // Session tracking to prevent stale responses
-    uint16_t session_id;
 } ft_client;
 
 // Port state (Core 0)
@@ -153,6 +147,8 @@ static void ft_start_connect(void);
 static void ft_handle_response(void);
 static void ft_set_error(const char* msg);
 static void ft_attempt_reconnect(void);
+static void ft_force_queue_response(const ft_response_t* response);
+static bool ft_requeue_current_request(void);
 
 // ============================================================================
 // Initialization
@@ -223,26 +219,32 @@ static size_t files_output_command(uint8_t data)
             size_t name_len = strlen(port_state.filename);
             memcpy(request.data, port_state.filename, name_len + 1);
 
-            // Reset state BEFORE queuing to prevent race where polling sees old state
-            port_state.chunk_len = 0;
-            port_state.chunk_position = 0;
-            port_state.status = FT_STATUS_BUSY;
-
+            // Queue request first, then reset state only on success
             if (!queue_try_add(&ft_request_queue, &request))
             {
+                // Should never happen in correct operation - indicates logic bug
                 port_state.status = FT_STATUS_ERROR;
+                port_state.chunk_len = 0;
+                port_state.chunk_position = 0;
+            }
+            else
+            {
+                port_state.chunk_len = 0;
+                port_state.chunk_position = 0;
+                port_state.status = FT_STATUS_BUSY;
             }
             break;
 
         case FT_CMD_CLOSE:
-            // Close file and evict from cache
+            // Close file and evict from cache (fire-and-forget: if queue is full,
+            // it means a GET_CHUNK is pending which will keep the file cached anyway)
             request.type = FT_REQ_CLOSE;
             
             // Use memcpy with known length (faster than strncpy)
             name_len = strlen(port_state.filename);
             memcpy(request.data, port_state.filename, name_len + 1);
             
-            queue_try_add(&ft_request_queue, &request);
+            (void)queue_try_add(&ft_request_queue, &request);
             port_state.status = FT_STATUS_IDLE;
             break;
 
@@ -289,12 +291,6 @@ static void files_output_data(uint8_t data)
 static bool files_process_response(ft_response_t* response)
 {
     if (!queue_try_remove(&ft_response_queue, response))
-    {
-        return false;
-    }
-
-    // Verify response matches current session (discard stale responses)
-    if (response->session_id != ft_client.session_id)
     {
         return false;
     }
@@ -349,13 +345,6 @@ static uint8_t files_input_data(void)
     if (port_state.chunk_position < port_state.chunk_len)
     {
         uint8_t byte = port_state.chunk_buffer[port_state.chunk_position++];
-
-        // If chunk depleted, try to get next response
-        if (port_state.chunk_position >= port_state.chunk_len)
-        {
-            ft_response_t response;
-            files_process_response(&response);
-        }
         return byte;
     }
     return 0x00;
@@ -428,7 +417,6 @@ void ft_client_poll(void)
             // Waiting for TCP connection callback
             break;
 
-        case FT_STATE_CONNECTED:
         case FT_STATE_READY:
         {
             // Ready for operations
@@ -493,11 +481,10 @@ void ft_client_poll(void)
                             tcp_output(ft_client.pcb);
                             ft_client.state = FT_STATE_WAITING_RESPONSE;
 
-                            // Check if response is already in the buffer (coalesced)
-                            if (ft_client.recv_len >= ft_client.expected_len)
-                            {
-                                ft_handle_response();
-                            }
+                            // Note: Don't check for coalesced response here.
+                            // For GET_CHUNK, expected_len is initially 2 (status+count) but actual
+                            // response includes payload. Must wait for ft_tcp_recv_cb to recalculate
+                            // expected_len before processing. Response will be handled in recv callback.
                         }
                         else
                         {
@@ -656,7 +643,11 @@ static err_t ft_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, err
     pbuf_free(p);
 
     // For GET_CHUNK, determine full response length once status+count are available
-    if (ft_client.current_request.type == FT_REQ_GET_CHUNK && ft_client.expected_len == 2 && ft_client.recv_len >= 2)
+    // Only recalculate if we're in WAITING_RESPONSE state and have a GET_CHUNK request
+    if (ft_client.state == FT_STATE_WAITING_RESPONSE && 
+        ft_client.current_request.type == FT_REQ_GET_CHUNK && 
+        ft_client.expected_len == 2 && 
+        ft_client.recv_len >= 2)
     {
         uint8_t server_status = ft_client.recv_buf[0];
         uint8_t count_byte = ft_client.recv_buf[1];
@@ -665,15 +656,18 @@ static err_t ft_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, err
         if (server_status == FT_PROTO_RESP_OK || server_status == FT_PROTO_RESP_EOF)
         {
             payload_len = (count_byte == 0) ? FT_CHUNK_SIZE : count_byte;
+            
+            // Validate payload length before using it
+            if (payload_len > FT_CHUNK_SIZE)
+            {
+                printf("[FT] ERROR: Invalid chunk size from server: %zu\n", payload_len);
+                ft_set_error("Invalid chunk size");
+                return ERR_ABRT;
+            }
         }
         else
         {
             payload_len = 0;
-        }
-
-        if (payload_len > FT_CHUNK_SIZE)
-        {
-            payload_len = FT_CHUNK_SIZE;
         }
 
         ft_client.expected_len = 2 + payload_len;
@@ -694,7 +688,6 @@ static void ft_handle_response(void)
     
     // Build response structure
     ft_response_t response = {
-        .session_id = ft_client.session_id,
         .has_count = false,
         .count = 0,
         .len = 0
@@ -722,7 +715,8 @@ static void ft_handle_response(void)
             uint8_t count_byte = ft_client.recv_buf[1];
             size_t valid_bytes = (count_byte == 0) ? 256 : count_byte;
             
-            response.len = (valid_bytes > FT_CHUNK_SIZE) ? FT_CHUNK_SIZE : valid_bytes;
+            // valid_bytes is always <= 256 (from count_byte), same as FT_CHUNK_SIZE
+            response.len = valid_bytes;
             response.has_count = true;
             response.count = count_byte;
             
@@ -733,7 +727,9 @@ static void ft_handle_response(void)
         }
     }
 
-    queue_try_add(&ft_response_queue, &response);
+    // Use force-queue to guarantee delivery (replaces stale response if queue full).
+    // This should never happen with strict request-response, but ensures no hangs.
+    ft_force_queue_response(&response);
 
     ft_client.request_in_progress = false;
 
@@ -769,12 +765,19 @@ static void ft_set_error(const char* msg)
     ft_response_t response;
     memset(&response, 0, sizeof(response));
     response.status = FT_STATUS_ERROR;
-    response.session_id = ft_client.session_id;
-    queue_try_add(&ft_response_queue, &response);
+    ft_force_queue_response(&response);
 }
 
 static void ft_attempt_reconnect(void)
 {
+    if (ft_client.state == FT_STATE_WAITING_RESPONSE || ft_client.state == FT_STATE_READY)
+    {
+        if (!ft_requeue_current_request())
+        {
+            return;
+        }
+    }
+
     if (ft_client.pcb != NULL)
     {
         tcp_abort(ft_client.pcb);
@@ -798,6 +801,41 @@ static void ft_attempt_reconnect(void)
     ft_client.request_in_progress = false;
     ft_client.state = FT_STATE_RECONNECTING;
     ft_client.reconnect_start_time = to_ms_since_boot(get_absolute_time());
+}
+
+static void ft_force_queue_response(const ft_response_t* response)
+{
+    if (!queue_try_add(&ft_response_queue, response))
+    {
+        // Replace any stale response to ensure Core 0 sees the error.
+        ft_response_t dropped;
+        (void)queue_try_remove(&ft_response_queue, &dropped);
+        (void)queue_try_add(&ft_response_queue, response);
+    }
+}
+
+static bool ft_requeue_current_request(void)
+{
+    if (!ft_client.request_in_progress)
+    {
+        return true;
+    }
+
+    if (ft_client.current_request.type != FT_REQ_GET_CHUNK &&
+        ft_client.current_request.type != FT_REQ_CLOSE)
+    {
+        ft_client.request_in_progress = false;
+        return true;
+    }
+
+    if (!queue_try_add(&ft_request_queue, &ft_client.current_request))
+    {
+        ft_set_error("Request queue full");
+        return false;
+    }
+
+    ft_client.request_in_progress = false;
+    return true;
 }
 
 #else // !CYW43_WL_GPIO_LED_PIN - Stub implementations for non-WiFi boards
