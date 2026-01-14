@@ -4,6 +4,7 @@
 #include "virtual_monitor.h"
 #include "i8080_disasm.h"
 #include "memory.h"
+#include "remote_fs.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -289,11 +290,13 @@ void altair_panel_command_handler(void)
             trace(&cpu);
             break;
         case RESET:
+            rfs_cache_clear();
             altair_reset();
             cpu_state_set_mode(CPU_RUNNING);
             publish_message("\r\n*** RESET - CPU RUNNING ***\r\n", 32);
             break;
         case LOAD_ALTAIR_BASIC:
+            rfs_cache_clear();
             memset(memory, 0x00, 64 * 1024); // clear altair memory
             load8kRom(0x0000);               // load Altair BASIC at 0x0000
             publish_message("\r\n*** Altair BASIC Loaded ***\r\n", 32);

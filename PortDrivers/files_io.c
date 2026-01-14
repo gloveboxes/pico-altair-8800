@@ -47,7 +47,7 @@
 // Connection timeout (ms)
 #define FT_CONNECT_TIMEOUT_MS 10000
 #define FT_OPERATION_TIMEOUT_MS 15000
-#define FT_MAX_RETRIES 3
+#define FT_MAX_RETRIES 20
 #define FT_RECONNECT_DELAY_MS 500
 
 // Forward declarations (before typedefs)

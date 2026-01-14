@@ -10,6 +10,7 @@ Protocol:
 - INIT (0x03): Initialize connection with client IP (len + bytes), copies disk files if first time for this client
 - READ_SECTOR (0x01): drive(1) + track(1) + sector(1) -> status(1) + data(137)
 - WRITE_SECTOR (0x02): drive(1) + track(1) + sector(1) + data(137) -> status(1)
+- READ_TRACK (0x04): drive(1) + track(1) -> status(1) + data(4384) [32 sectors]
 
 Response status:
 - 0x00: OK
@@ -35,6 +36,7 @@ from collections import deque
 CMD_READ_SECTOR = 0x01
 CMD_WRITE_SECTOR = 0x02
 CMD_INIT = 0x03
+CMD_READ_TRACK = 0x04
 
 RESP_OK = 0x00
 RESP_ERROR = 0xFF
@@ -123,6 +125,24 @@ class DiskImage:
                 logger.error(f"Error reading sector: {e}")
                 return bytes(SECTOR_SIZE)
     
+    def read_track(self, track: int) -> bytes:
+        """Read an entire track from the disk image (all 32 sectors)"""
+        if track >= MAX_TRACKS:
+            logger.warning(f"Invalid track address: track={track}")
+            return bytes(TRACK_SIZE)
+        
+        if not self._mmap:
+            return bytes(TRACK_SIZE)
+            
+        offset = track * TRACK_SIZE
+        
+        with self.lock:
+            try:
+                return self._mmap[offset:offset + TRACK_SIZE]
+            except Exception as e:
+                logger.error(f"Error reading track: {e}")
+                return bytes(TRACK_SIZE)
+    
     def write_sector(self, track: int, sector: int, data: bytes) -> bool:
         """Write a sector to the disk image"""
         if track >= MAX_TRACKS or sector >= SECTORS_PER_TRACK:
@@ -190,6 +210,8 @@ class ClientSession:
                     self._handle_read_sector()
                 elif cmd == CMD_WRITE_SECTOR:
                     self._handle_write_sector()
+                elif cmd == CMD_READ_TRACK:
+                    self._handle_read_track()
                 else:
                     logger.warning(f"Unknown command: 0x{cmd:02X}")
                     self.conn.sendall(bytes([RESP_ERROR]))
@@ -299,6 +321,34 @@ class ClientSession:
         # No response sent for writes (Async/Fire-and-forget)
         
         logger.debug(f"[{self.client_ip}] WRITE: drive={drive}, track={track:02d}, sector={sector:02d}, success={success}")
+    
+    def _handle_read_track(self):
+        """Handle READ_TRACK command (reads entire track for client-side caching)"""
+        # Read drive, track
+        params = self._recv_exact(2)
+        if not params:
+            return
+            
+        drive, track = params[0], params[1]
+
+        if self.disks is None:
+            logger.warning(f"[{self.client_ip}] READ_TRACK before INIT")
+            self.conn.sendall(bytes([RESP_ERROR]))
+            return
+
+        if drive >= MAX_DRIVES or drive >= len(self.disks):
+            logger.warning(f"Invalid drive: {drive}")
+            self.conn.sendall(bytes([RESP_ERROR]))
+            return
+            
+        disk = self.disks[drive]
+        data = disk.read_track(track)
+        
+        # Send response: status + track data (4384 bytes)
+        response = bytes([RESP_OK]) + data
+        self.conn.sendall(response)
+        
+        logger.debug(f"[{self.client_id}] READ_TRACK: drive={drive}, track={track:02d}, file={disk.filepath.name}")
 
 
 class RemoteFSServer:

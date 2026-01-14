@@ -22,27 +22,27 @@
 #define RFS_SERVER_PORT 8085
 #endif
 
-// Cache configuration
+// Cache configuration - defined as number of tracks, actual bytes calculated from entry size
 #if defined(PICO_RP2040)
-// Pico W has 264KB RAM - 55B cache (~400 sectors)
-#define RFS_CACHE_SIZE_BYTES (55 * 1024)
+// Pico W has 264KB RAM - cache 12 tracks
+#define RFS_CACHE_NUM_TRACKS 12
 #else
-// RP2350 (Pico 2 W) has 520KB RAM - we can afford a large 150KB cache (~1,170 sectors)
-#define RFS_CACHE_SIZE_BYTES (150 * 1024)
+// RP2350 (Pico 2 W) has 520KB RAM - cache 32 tracks
+#define RFS_CACHE_NUM_TRACKS 32
 #endif
 
 // Queue sizes
 #define RFS_OUTBOUND_QUEUE_SIZE 4
-#define RFS_INBOUND_QUEUE_SIZE 4
+#define RFS_INBOUND_QUEUE_SIZE 1
 
-// Receive buffer size (status + sector data)
-#define RFS_RECV_BUF_SIZE (1 + RFS_SECTOR_SIZE)
+// Receive buffer size (status + track data for largest response)
+#define RFS_RECV_BUF_SIZE (1 + RFS_TRACK_SIZE)
 
 // Connection timeout (ms)
-#define RFS_CONNECT_TIMEOUT_MS 15000
-#define RFS_OPERATION_TIMEOUT_MS 20000
-#define RFS_MAX_RETRIES 3
-#define RFS_RECONNECT_DELAY_MS 500 // Reduced from 1000ms for faster recovery
+#define RFS_CONNECT_TIMEOUT_MS 5000 // Reduced for faster failure detection
+#define RFS_OPERATION_TIMEOUT_MS 8000 // Reduced for faster retry
+#define RFS_MAX_RETRIES 20
+#define RFS_RECONNECT_DELAY_MS 500 // Minimal delay for immediate retry
 
 // Queues for inter-core communication
 static queue_t rfs_outbound_queue; // Core 0 -> Core 1
@@ -77,25 +77,26 @@ static struct
 static uint8_t rfs_write_buf[4 + RFS_SECTOR_SIZE];
 
 // ============================================================================
-// Sector Cache - 100KB write-through cache shared across all drives
+// Track Cache - Write-through cache storing full tracks for spatial locality
 // ============================================================================
 
 // Cache configuration
 // (Defined at top of file based on platform)
 
-// Cache entry structure (148 bytes each)
+// Cache entry structure - stores entire track (4392 bytes each)
 typedef struct
 {
     uint8_t drive;
     uint8_t track;
-    uint8_t sector;
     uint8_t valid; // 1 if entry contains valid data
+    uint8_t _pad;  // Alignment padding
     uint32_t age;  // LRU counter - higher = more recently used
-    uint8_t data[RFS_SECTOR_SIZE];
+    uint8_t data[RFS_TRACK_SIZE]; // Full track data (32 sectors × 137 bytes)
 } rfs_cache_entry_t;
 
 #define RFS_CACHE_ENTRY_SIZE (sizeof(rfs_cache_entry_t))
-#define RFS_CACHE_NUM_ENTRIES (RFS_CACHE_SIZE_BYTES / RFS_CACHE_ENTRY_SIZE)
+#define RFS_CACHE_NUM_ENTRIES RFS_CACHE_NUM_TRACKS
+#define RFS_CACHE_SIZE_BYTES (RFS_CACHE_NUM_ENTRIES * RFS_CACHE_ENTRY_SIZE)
 
 // Static cache pool - shared across all drives
 static rfs_cache_entry_t rfs_cache[RFS_CACHE_NUM_ENTRIES];
@@ -104,13 +105,12 @@ static uint32_t rfs_cache_hits = 0;
 static uint32_t rfs_cache_misses = 0;
 static uint32_t rfs_cache_write_skips = 0; // Writes skipped due to identical data
 
-// Find entry in cache (returns NULL if not found)
-static rfs_cache_entry_t* rfs_cache_find(uint8_t drive, uint8_t track, uint8_t sector)
+// Find track entry in cache (returns NULL if not found)
+static rfs_cache_entry_t* rfs_cache_find_track(uint8_t drive, uint8_t track)
 {
     for (size_t i = 0; i < RFS_CACHE_NUM_ENTRIES; i++)
     {
-        if (rfs_cache[i].valid && rfs_cache[i].drive == drive && rfs_cache[i].track == track &&
-            rfs_cache[i].sector == sector)
+        if (rfs_cache[i].valid && rfs_cache[i].drive == drive && rfs_cache[i].track == track)
         {
             // Update LRU age
             rfs_cache[i].age = ++rfs_cache_age_counter;
@@ -141,11 +141,11 @@ static rfs_cache_entry_t* rfs_cache_find_lru(void)
     return lru;
 }
 
-// Add or update entry in cache
-static void rfs_cache_put(uint8_t drive, uint8_t track, uint8_t sector, const uint8_t* data)
+// Add or update track entry in cache
+static void rfs_cache_put_track(uint8_t drive, uint8_t track, const uint8_t* track_data)
 {
-    // Check if already in cache
-    rfs_cache_entry_t* entry = rfs_cache_find(drive, track, sector);
+    // Check if track already in cache
+    rfs_cache_entry_t* entry = rfs_cache_find_track(drive, track);
 
     if (!entry)
     {
@@ -155,20 +155,35 @@ static void rfs_cache_put(uint8_t drive, uint8_t track, uint8_t sector, const ui
 
     entry->drive = drive;
     entry->track = track;
-    entry->sector = sector;
     entry->valid = 1;
     entry->age = ++rfs_cache_age_counter;
-    memcpy(entry->data, data, RFS_SECTOR_SIZE);
+    memcpy(entry->data, track_data, RFS_TRACK_SIZE);
 }
 
-// Get cached sector data (returns true if hit)
-static bool rfs_cache_get(uint8_t drive, uint8_t track, uint8_t sector, uint8_t* data)
+// Update a single sector within a cached track
+static void rfs_cache_put_sector(uint8_t drive, uint8_t track, uint8_t sector, const uint8_t* sector_data)
 {
-    rfs_cache_entry_t* entry = rfs_cache_find(drive, track, sector);
+    rfs_cache_entry_t* entry = rfs_cache_find_track(drive, track);
 
     if (entry)
     {
-        memcpy(data, entry->data, RFS_SECTOR_SIZE);
+        // Track is cached - update just the sector
+        size_t offset = sector * RFS_SECTOR_SIZE;
+        memcpy(&entry->data[offset], sector_data, RFS_SECTOR_SIZE);
+        entry->age = ++rfs_cache_age_counter;
+    }
+    // If track not cached, don't cache single sector writes (wait for full track read)
+}
+
+// Get cached sector data (returns true if hit)
+static bool rfs_cache_get_sector(uint8_t drive, uint8_t track, uint8_t sector, uint8_t* sector_data)
+{
+    rfs_cache_entry_t* entry = rfs_cache_find_track(drive, track);
+
+    if (entry)
+    {
+        size_t offset = sector * RFS_SECTOR_SIZE;
+        memcpy(sector_data, &entry->data[offset], RFS_SECTOR_SIZE);
         rfs_cache_hits++;
         return true;
     }
@@ -177,14 +192,15 @@ static bool rfs_cache_get(uint8_t drive, uint8_t track, uint8_t sector, uint8_t*
     return false;
 }
 
-// Compare data with cached version (returns true if identical)
-static bool rfs_cache_compare(uint8_t drive, uint8_t track, uint8_t sector, const uint8_t* data)
+// Compare sector data with cached version (returns true if identical)
+static bool rfs_cache_compare_sector(uint8_t drive, uint8_t track, uint8_t sector, const uint8_t* sector_data)
 {
-    rfs_cache_entry_t* entry = rfs_cache_find(drive, track, sector);
+    rfs_cache_entry_t* entry = rfs_cache_find_track(drive, track);
 
     if (entry)
     {
-        return memcmp(entry->data, data, RFS_SECTOR_SIZE) == 0;
+        size_t offset = sector * RFS_SECTOR_SIZE;
+        return memcmp(&entry->data[offset], sector_data, RFS_SECTOR_SIZE) == 0;
     }
     return false; // Not in cache = can't compare = must write
 }
@@ -196,8 +212,19 @@ static void rfs_cache_init(void)
     rfs_cache_age_counter = 0;
     rfs_cache_hits = 0;
     rfs_cache_misses = 0;
-    printf("[RFS_CACHE] Initialized %u entries (%u KB)\n", (unsigned)RFS_CACHE_NUM_ENTRIES,
+    printf("[RFS_CACHE] Initialized %u track entries (%u KB)\n", (unsigned)RFS_CACHE_NUM_ENTRIES,
            (unsigned)(RFS_CACHE_SIZE_BYTES / 1024));
+}
+
+// Clear/invalidate entire cache (called on system reset)
+void rfs_cache_clear(void)
+{
+    for (size_t i = 0; i < RFS_CACHE_NUM_ENTRIES; i++)
+    {
+        rfs_cache[i].valid = 0;
+    }
+    rfs_cache_age_counter = 0;
+    printf("[RFS_CACHE] Cache cleared\n");
 }
 
 // Print cache statistics
@@ -220,6 +247,7 @@ static err_t rfs_tcp_sent_cb(void* arg, struct tcp_pcb* tpcb, u16_t len);
 static void rfs_start_connect(void);
 static void rfs_send_init(void);
 static err_t rfs_send_read_request(const rfs_request_t* req);
+static err_t rfs_send_track_request(const rfs_request_t* req);
 static err_t rfs_send_write_request(const rfs_request_t* req);
 static void rfs_handle_response(void);
 static void rfs_set_error(const char* msg);
@@ -316,8 +344,13 @@ void rfs_client_poll(void)
                     switch (request.op)
                     {
                         case RFS_OP_READ:
-                            expected = 1 + RFS_SECTOR_SIZE; // status + data
+                            expected = 1 + RFS_SECTOR_SIZE; // status + data (legacy, not used)
                             err = rfs_send_read_request(&request);
+                            break;
+
+                        case RFS_OP_READ_TRACK:
+                            expected = 1 + RFS_TRACK_SIZE; // status + track data (4385 bytes)
+                            err = rfs_send_track_request(&request);
                             break;
 
                         case RFS_OP_WRITE:
@@ -601,6 +634,25 @@ static err_t rfs_send_read_request(const rfs_request_t* req)
     return err;
 }
 
+static err_t rfs_send_track_request(const rfs_request_t* req)
+{
+    if (client.pcb == NULL)
+        return ERR_CONN;
+
+    // Build request: cmd + drive + track (no sector - reading entire track)
+    uint8_t buf[3];
+    buf[0] = RFS_CMD_READ_TRACK;
+    buf[1] = req->drive;
+    buf[2] = req->track;
+
+    err_t err = tcp_write(client.pcb, buf, 3, TCP_WRITE_FLAG_COPY);
+    if (err == ERR_OK)
+    {
+        tcp_output(client.pcb);
+    }
+    return err;
+}
+
 static err_t rfs_send_write_request(const rfs_request_t* req)
 {
     if (client.pcb == NULL)
@@ -640,8 +692,14 @@ static void rfs_handle_response(void)
             // If we have a pending retry request, resend it now
             if (client.has_pending_retry)
             {
-                printf("[RFS] ✓ Reconnected! Resending failed %s request...\n",
-                       client.pending_retry_request.op == RFS_OP_READ ? "READ" : "WRITE");
+                const char* op_name = "UNKNOWN";
+                if (client.pending_retry_request.op == RFS_OP_READ || 
+                    client.pending_retry_request.op == RFS_OP_READ_TRACK)
+                    op_name = "READ";
+                else if (client.pending_retry_request.op == RFS_OP_WRITE)
+                    op_name = "WRITE";
+                    
+                printf("[RFS] ✓ Reconnected! Resending failed %s request...\n", op_name);
                 client.has_pending_retry = false;
                 client.current_request = client.pending_retry_request;
                 client.request_in_progress = true;
@@ -654,6 +712,10 @@ static void rfs_handle_response(void)
                     case RFS_OP_READ:
                         client.expected_len = 1 + RFS_SECTOR_SIZE;
                         err = rfs_send_read_request(&client.current_request);
+                        break;
+                    case RFS_OP_READ_TRACK:
+                        client.expected_len = 1 + RFS_TRACK_SIZE;
+                        err = rfs_send_track_request(&client.current_request);
                         break;
                     case RFS_OP_WRITE:
                         client.expected_len = 1;
@@ -683,7 +745,7 @@ static void rfs_handle_response(void)
     }
     else if (client.request_in_progress)
     {
-        // READ or WRITE response
+        // READ, READ_TRACK, or WRITE response
         response.op = client.current_request.op;
         response.status = client.recv_buf[0];
 
@@ -691,9 +753,21 @@ static void rfs_handle_response(void)
         {
             memcpy(response.data, &client.recv_buf[1], RFS_SECTOR_SIZE);
 
-            // Update cache with fetched data
-            rfs_cache_put(client.current_request.drive, client.current_request.track, client.current_request.sector,
-                          response.data);
+            // Update cache with fetched sector data (legacy, not used with track caching)
+            rfs_cache_put_sector(client.current_request.drive, client.current_request.track, 
+                                client.current_request.sector, response.data);
+        }
+        else if (response.op == RFS_OP_READ_TRACK && response.status == RFS_RESP_OK)
+        {
+            // Received entire track - cache it and extract requested sector
+            rfs_cache_put_track(client.current_request.drive, client.current_request.track, &client.recv_buf[1]);
+            
+            // Extract the requested sector from the track for the response
+            size_t sector_offset = client.current_request.sector * RFS_SECTOR_SIZE;
+            memcpy(response.data, &client.recv_buf[1 + sector_offset], RFS_SECTOR_SIZE);
+            
+            // Response op should be READ (not READ_TRACK) for Core 0
+            response.op = RFS_OP_READ;
         }
 
         // Queue response for Core 0
@@ -786,24 +860,24 @@ bool rfs_request_connect(void)
 
 bool rfs_request_read(uint8_t drive, uint8_t track, uint8_t sector)
 {
-    // Check cache first - if hit, immediately queue response (no network)
+    // Check cache first - if track is cached, immediately queue response (no network)
     rfs_response_t cached_response;
-    if (rfs_cache_get(drive, track, sector, cached_response.data))
+    if (rfs_cache_get_sector(drive, track, sector, cached_response.data))
     {
         cached_response.op = RFS_OP_READ;
         cached_response.status = RFS_RESP_OK;
         return queue_try_add(&rfs_inbound_queue, &cached_response);
     }
 
-    // Cache miss - queue network request
-    rfs_request_t request = {.op = RFS_OP_READ, .drive = drive, .track = track, .sector = sector};
+    // Cache miss - queue track read request (fetches all 32 sectors in one go)
+    rfs_request_t request = {.op = RFS_OP_READ_TRACK, .drive = drive, .track = track, .sector = sector};
     return queue_try_add(&rfs_outbound_queue, &request);
 }
 
 bool rfs_request_write(uint8_t drive, uint8_t track, uint8_t sector, const uint8_t* data)
 {
     // Check if data is identical to cached version (skip redundant write)
-    if (rfs_cache_compare(drive, track, sector, data))
+    if (rfs_cache_compare_sector(drive, track, sector, data))
     {
         rfs_cache_write_skips++;
         // Data unchanged - send immediate success response without network
@@ -812,7 +886,7 @@ bool rfs_request_write(uint8_t drive, uint8_t track, uint8_t sector, const uint8
     }
 
     // Update cache (write-through: cache updated immediately, request still goes to server)
-    rfs_cache_put(drive, track, sector, data);
+    rfs_cache_put_sector(drive, track, sector, data);
 
     rfs_request_t request = {.op = RFS_OP_WRITE, .drive = drive, .track = track, .sector = sector};
     memcpy(request.data, data, RFS_SECTOR_SIZE);
@@ -890,5 +964,7 @@ void rfs_get_cache_stats(uint32_t* hits, uint32_t* misses, uint32_t* write_skips
     if (write_skips)
         *write_skips = 0;
 }
+
+void rfs_cache_clear(void) {}
 
 #endif // CYW43_WL_GPIO_LED_PIN

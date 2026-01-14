@@ -13,6 +13,7 @@
 // Disk geometry (8" floppy - same as SD card version)
 #define RFS_SECTOR_SIZE 137
 #define RFS_SECTORS_PER_TRACK 32
+#define RFS_TRACK_SIZE (RFS_SECTORS_PER_TRACK * RFS_SECTOR_SIZE)  // 4384 bytes
 #define RFS_MAX_TRACKS 77
 #define RFS_MAX_DRIVES 4
 
@@ -21,6 +22,7 @@
 #define RFS_CMD_READ_SECTOR 0x01
 #define RFS_CMD_WRITE_SECTOR 0x02
 #define RFS_CMD_INIT 0x03
+#define RFS_CMD_READ_TRACK 0x04
 
 // Response status
 #define RFS_RESP_OK 0x00
@@ -45,6 +47,7 @@ typedef enum
     RFS_OP_CONNECT,
     RFS_OP_INIT,
     RFS_OP_READ,
+    RFS_OP_READ_TRACK,
     RFS_OP_WRITE
 } rfs_op_type_t;
 
@@ -149,5 +152,11 @@ bool rfs_request_pending(void);
  * @param write_skips Pointer to receive write skip count (can be NULL)
  */
 void rfs_get_cache_stats(uint32_t* hits, uint32_t* misses, uint32_t* write_skips);
+
+/**
+ * Clear the track cache
+ * Call this when resetting the system to ensure fresh data from server
+ */
+void rfs_cache_clear(void);
 
 #endif // _REMOTE_FS_H_
