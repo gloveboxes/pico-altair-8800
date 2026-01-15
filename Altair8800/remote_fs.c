@@ -27,8 +27,8 @@
 // Pico W has 264KB RAM - cache 12 tracks
 #define RFS_CACHE_NUM_TRACKS 12
 #else
-// RP2350 (Pico 2 W) has 520KB RAM - cache 32 tracks
-#define RFS_CACHE_NUM_TRACKS 32
+// RP2350 (Pico 2 W) has 520KB RAM - cache 33 tracks
+#define RFS_CACHE_NUM_TRACKS 33
 #endif
 
 // Queue sizes
@@ -748,29 +748,27 @@ static void rfs_handle_response(void)
         // READ, READ_TRACK, or WRITE response
         response.op = client.current_request.op;
         response.status = client.recv_buf[0];
+        response.drive = client.current_request.drive;
+        response.track = client.current_request.track;
+        response.sector = client.current_request.sector;
 
         if (response.op == RFS_OP_READ && response.status == RFS_RESP_OK)
         {
-            memcpy(response.data, &client.recv_buf[1], RFS_SECTOR_SIZE);
-
             // Update cache with fetched sector data (legacy, not used with track caching)
             rfs_cache_put_sector(client.current_request.drive, client.current_request.track, 
-                                client.current_request.sector, response.data);
+                                client.current_request.sector, &client.recv_buf[1]);
         }
         else if (response.op == RFS_OP_READ_TRACK && response.status == RFS_RESP_OK)
         {
-            // Received entire track - cache it and extract requested sector
+            // Received entire track - write directly to cache (Core 0 will read from cache)
             rfs_cache_put_track(client.current_request.drive, client.current_request.track, &client.recv_buf[1]);
-            
-            // Extract the requested sector from the track for the response
-            size_t sector_offset = client.current_request.sector * RFS_SECTOR_SIZE;
-            memcpy(response.data, &client.recv_buf[1 + sector_offset], RFS_SECTOR_SIZE);
             
             // Response op should be READ (not READ_TRACK) for Core 0
             response.op = RFS_OP_READ;
         }
 
-        // Queue response for Core 0
+        // Queue lightweight notification for Core 0 (no bulk data copy)
+        // Core 0 reads data directly from shared cache
         queue_try_add(&rfs_inbound_queue, &response);
         client.request_in_progress = false;
         client.recv_len = 0;
@@ -858,15 +856,19 @@ bool rfs_request_connect(void)
     return queue_try_add(&rfs_outbound_queue, &request);
 }
 
+bool rfs_try_read_cached(uint8_t drive, uint8_t track, uint8_t sector, uint8_t* data_out)
+{
+    // Synchronous cache lookup - no queue overhead on cache hit
+    return rfs_cache_get_sector(drive, track, sector, data_out);
+}
+
 bool rfs_request_read(uint8_t drive, uint8_t track, uint8_t sector)
 {
-    // Check cache first - if track is cached, immediately queue response (no network)
-    rfs_response_t cached_response;
-    if (rfs_cache_get_sector(drive, track, sector, cached_response.data))
+    // Cache hit - no async operation (caller can use rfs_try_read_cached for synchronous access)
+    uint8_t dummy_buf[RFS_SECTOR_SIZE];
+    if (rfs_cache_get_sector(drive, track, sector, dummy_buf))
     {
-        cached_response.op = RFS_OP_READ;
-        cached_response.status = RFS_RESP_OK;
-        return queue_try_add(&rfs_inbound_queue, &cached_response);
+        return false; // Cache hit - no async request queued
     }
 
     // Cache miss - queue track read request (fetches all 32 sectors in one go)
@@ -880,9 +882,7 @@ bool rfs_request_write(uint8_t drive, uint8_t track, uint8_t sector, const uint8
     if (rfs_cache_compare_sector(drive, track, sector, data))
     {
         rfs_cache_write_skips++;
-        // Data unchanged - send immediate success response without network
-        rfs_response_t response = {.op = RFS_OP_WRITE, .status = RFS_RESP_OK};
-        return queue_try_add(&rfs_inbound_queue, &response);
+        return false; // Data unchanged - no async request queued
     }
 
     // Update cache (write-through: cache updated immediately, request still goes to server)
@@ -928,6 +928,14 @@ bool rfs_client_has_error(void)
 }
 bool rfs_request_connect(void)
 {
+    return false;
+}
+bool rfs_try_read_cached(uint8_t drive, uint8_t track, uint8_t sector, uint8_t* data_out)
+{
+    (void)drive;
+    (void)track;
+    (void)sector;
+    (void)data_out;
     return false;
 }
 bool rfs_request_read(uint8_t drive, uint8_t track, uint8_t sector)

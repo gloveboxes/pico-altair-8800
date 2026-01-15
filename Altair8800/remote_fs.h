@@ -61,12 +61,15 @@ typedef struct
     uint8_t data[RFS_SECTOR_SIZE];
 } rfs_request_t;
 
-// Response message (Core 1 -> Core 0)
+// Response message (Core 1 -> Core 0) - Lightweight notification only
+// Data is read directly from shared cache to avoid 4KB copy overhead
 typedef struct
 {
     rfs_op_type_t op;
     uint8_t status; // RFS_RESP_OK or RFS_RESP_ERROR
-    uint8_t data[RFS_SECTOR_SIZE];
+    uint8_t drive;  // For cache lookup
+    uint8_t track;  // For cache lookup
+    uint8_t sector; // For cache lookup
 } rfs_response_t;
 
 // ============================================================================
@@ -111,23 +114,34 @@ bool rfs_client_has_error(void);
 bool rfs_request_connect(void);
 
 /**
- * Request sector read from server
- * Non-blocking - result available via rfs_get_response()
+ * Try to read sector from cache (synchronous)
+ * Fast path for cache hits - avoids queue overhead
  * @param drive Drive number (0-3)
  * @param track Track number (0-76)
  * @param sector Sector number (0-31)
- * @return true if request queued successfully
+ * @param data_out Buffer to receive sector data (137 bytes) - must not be NULL
+ * @return true if cache hit (data copied to data_out), false if cache miss
+ */
+bool rfs_try_read_cached(uint8_t drive, uint8_t track, uint8_t sector, uint8_t* data_out);
+
+/**
+ * Request sector read from server
+ * Non-blocking - result available via rfs_get_response() only on cache miss
+ * @param drive Drive number (0-3)
+ * @param track Track number (0-76)
+ * @param sector Sector number (0-31)
+ * @return true if async request queued (cache miss), false if cache hit (use rfs_try_read_cached)
  */
 bool rfs_request_read(uint8_t drive, uint8_t track, uint8_t sector);
 
 /**
  * Request sector write to server
- * Non-blocking - result available via rfs_get_response()
+ * Non-blocking - result available via rfs_get_response() only on cache miss or data change
  * @param drive Drive number (0-3)
  * @param track Track number (0-76)
  * @param sector Sector number (0-31)
  * @param data Sector data (137 bytes)
- * @return true if request queued successfully
+ * @return true if async request queued, false if data unchanged (redundant write skipped)
  */
 bool rfs_request_write(uint8_t drive, uint8_t track, uint8_t sector, const uint8_t* data);
 

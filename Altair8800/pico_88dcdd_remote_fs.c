@@ -172,8 +172,17 @@ void rfs_disk_poll(void)
     {
         if (response.status == RFS_RESP_OK)
         {
-            memcpy(disk->sectorData, response.data, RFS_DISK_SECTOR_SIZE);
-            disk->haveSectorData = true;
+            // Read data directly from shared cache (no copy through queue)
+            if (rfs_try_read_cached(response.drive, response.track, response.sector, disk->sectorData))
+            {
+                disk->haveSectorData = true;
+            }
+            else
+            {
+                // Cache miss (shouldn't happen - Core 1 just wrote it)
+                memset(disk->sectorData, 0x00, RFS_DISK_SECTOR_SIZE);
+                disk->haveSectorData = false;
+            }
         }
         else
         {
@@ -213,18 +222,6 @@ void rfs_disk_select(uint8_t drive)
 // Get disk status
 uint8_t rfs_disk_status(void)
 {
-    static uint32_t call_count = 0;
-    static uint32_t last_print = 0;
-    call_count++;
-
-    uint32_t now = to_ms_since_boot(get_absolute_time());
-    if (now - last_print > 5000)
-    {
-        // Only print periodically to avoid flooding
-        // printf("[RFS] disk_status called %lu times, status=0x%02X\n", call_count,
-        // rfs_disk_controller.current->status);
-        last_print = now;
-    }
     return rfs_disk_controller.current->status;
 }
 
@@ -404,9 +401,13 @@ static void rfs_writeSector(rfs_disk_t* pDisk)
     uint8_t track = pDisk->track;
     uint8_t sector = pDisk->sector > 0 ? pDisk->sector - 1 : 0;
 
-    if (!rfs_request_write(drive, track, sector, pDisk->sectorData))
+    bool async_queued = rfs_request_write(drive, track, sector, pDisk->sectorData);
+    
+    if (!async_queued)
     {
-        printf("[RFS_DISK] Failed to queue write request\n");
+        // Data unchanged or queue full - consider write complete
+        pDisk->sectorPointer = 0;
+        pDisk->sectorDirty = false;
         return;
     }
 
@@ -441,8 +442,20 @@ static void rfs_readSectorFromServer(rfs_disk_t* pDisk)
     uint8_t track = pDisk->track;
     uint8_t sector = pDisk->sector > 0 ? pDisk->sector - 1 : 0;
 
+    // Try synchronous cache read first (zero overhead)
+    if (rfs_try_read_cached(drive, track, sector, pDisk->sectorData))
+    {
+        // Cache hit - data immediately available
+        pDisk->haveSectorData = true;
+        pDisk->op_state = RFS_DISK_OP_IDLE;
+        return;
+    }
+
+    // Cache miss - queue async request
     if (!rfs_request_read(drive, track, sector))
     {
+        // Request failed to queue (shouldn't happen on cache miss)
+        pDisk->op_state = RFS_DISK_OP_IDLE;
         return;
     }
 

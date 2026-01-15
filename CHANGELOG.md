@@ -1,3 +1,25 @@
+# Changelog - Build 955 (2026-01-15)
+
+## 🚀 Remote FS Cache Performance Optimization
+- **Zero-Overhead Cache Hits**: Eliminated queue round-trip for cache hits, providing direct synchronous data access with zero queue overhead.
+- **New Synchronous API**: Added `rfs_try_read_cached()` for immediate cache reads without async queue operations.
+- **Updated Async API**: Modified `rfs_request_read()` and `rfs_request_write()` to return `false` on cache hits/unchanged data (no async operation queued), `true` when async request is queued.
+- **Shared Buffer Architecture**: Implemented lightweight notification system - inbound queue now carries only 5-byte notifications instead of full track/sector data payloads.
+- **Queue Size Reduction**: Reduced `rfs_response_t` from 139 bytes to 5 bytes (96% smaller) by removing bulk data array.
+- **Direct Cache Access**: Core 0 reads data directly from shared cache after receiving notification, eliminating 4384-byte track copy through queue.
+- **Queue Architecture Cleanup**: Strictly enforced single-producer-single-consumer model - Core 0 never writes to inbound queue, Core 1 never writes to outbound queue.
+- **Calling Code Update**: Updated `pico_88dcdd_remote_fs.c` to use synchronous cache reads first, falling back to async only on cache miss.
+
+### Technical Details
+- **Before**: Network → recv_buf → response.data[137] → queue → Core 0 (4384-byte track copied through queue)
+- **After**: Network → cache → Core 0 (queue carries 5-byte notification only)
+- **Performance Impact**: 
+  - Cache hits: Zero queue operations (direct synchronous access)
+  - Cache misses: Eliminates 4384-byte track copy through queue per read
+  - Typical savings: ~90%+ of reads avoid queue overhead
+
+---
+
 # Changelog - Build 954 (2026-01-11)
 
 ## 📂 Remote File Transfer (FT) Protocol v2

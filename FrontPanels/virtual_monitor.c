@@ -290,13 +290,17 @@ void altair_panel_command_handler(void)
             trace(&cpu);
             break;
         case RESET:
+#ifdef REMOTE_FS_SUPPORT
             rfs_cache_clear();
+#endif
             altair_reset();
             cpu_state_set_mode(CPU_RUNNING);
             publish_message("\r\n*** RESET - CPU RUNNING ***\r\n", 32);
             break;
         case LOAD_ALTAIR_BASIC:
+#ifdef REMOTE_FS_SUPPORT
             rfs_cache_clear();
+#endif
             memset(memory, 0x00, 64 * 1024); // clear altair memory
             load8kRom(0x0000);               // load Altair BASIC at 0x0000
             publish_message("\r\n*** Altair BASIC Loaded ***\r\n", 32);
