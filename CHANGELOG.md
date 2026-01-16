@@ -1,3 +1,21 @@
+# Changelog - Build 956 (2026-01-16)
+
+## 🌐 WebSocket Multi-Client & lwIP TCP Segment Exhaustion Fix
+- **TCP Segment Pool Exhaustion Fixed**: Increased `MEMP_NUM_TCP_SEG` from 32 to 40 to prevent segment allocation failures that were blocking new WebSocket connections.
+- **Reduced Per-Connection Buffer Usage**: Lowered `TCP_WND` and `TCP_SND_BUF` from 6×MSS to 4×MSS, reducing segments consumed per connection and allowing more concurrent connections.
+- **Increased WebSocket Client Limit**: Bumped `WS_MAX_CLIENTS` from 2 to 3 to support additional simultaneous WebSocket terminals.
+- **Root Cause**: Statistics showed 2,606 SEG allocation errors with max usage hitting the 32-segment ceiling; new settings provide headroom for multiple clients.
+
+### Technical Details
+- **lwipopts.h Changes**:
+  - `MEMP_NUM_TCP_SEG`: 32 → 40 (25% more segments available)
+  - `TCP_WND`: 6×MSS → 4×MSS (~5.8KB receive window)
+  - `TCP_SND_BUF`: 6×MSS → 4×MSS (~5.8KB send buffer)
+- **ws.cpp Changes**:
+  - `WS_MAX_CLIENTS`: 2 → 3
+
+---
+
 # Changelog - Build 955 (2026-01-15)
 
 ## 🚀 Remote FS Cache Performance Optimization

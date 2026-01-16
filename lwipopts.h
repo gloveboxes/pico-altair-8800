@@ -15,11 +15,11 @@
 #define MEM_LIBC_MALLOC 0 // Use lwIP's internal memory pool
 #define MEM_ALIGNMENT 4   // Memory alignment (4 bytes for ARM)
 #if defined(PICO_RP2040)
-#define MEM_SIZE 51200 // Size of the heap memory (bytes) - Increased to 64KB to stop allocation errors
+#define MEM_SIZE 51200 // Size of the heap memory (bytes) - 50KB for RP2040
 #else
-#define MEM_SIZE 65536 // Size of the heap memory (bytes) - Increased to 64KB for RP2350
+#define MEM_SIZE 65536 // Size of the heap memory (bytes) - 64KB for RP2350
 #endif
-#define MEMP_NUM_TCP_SEG 32       // Number of simultaneously queued TCP segments - Increased for larger responses
+#define MEMP_NUM_TCP_SEG 40       // Number of simultaneously queued TCP segments - Increased to prevent SEG exhaustion
 #define MEMP_NUM_ARP_QUEUE 10     // Number of packets queued waiting for ARP resolution
 #define MEMP_NUM_TCP_PCB 16       // Number of simultaneously active TCP connections - Increased to handle TIME_WAIT
 #define MEMP_NUM_TCP_PCB_LISTEN 5 // Number of listening TCP connections - Increased to prevent lockout
@@ -28,9 +28,9 @@
 #define LWIP_ETHERNET 1           // Enable Ethernet support
 #define LWIP_ICMP 1               // Enable ICMP protocol (ping)
 #define LWIP_RAW 1                // Enable raw IP sockets
-#define TCP_WND (6 * TCP_MSS)     // TCP receive window size - Balanced for 8KB HTML content
+#define TCP_WND (4 * TCP_MSS)     // TCP receive window size - Reduced to use fewer segments per connection
 #define TCP_MSS 1460              // TCP maximum segment size (bytes)
-#define TCP_SND_BUF (6 * TCP_MSS) // TCP sender buffer space (bytes) - Sized to accommodate HTML page
+#define TCP_SND_BUF (4 * TCP_MSS) // TCP sender buffer space (bytes) - Reduced to use fewer segments per connection
 #define TCP_SND_QUEUELEN ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS)) // TCP sender buffer space (pbufs)
 #define LWIP_NETIF_STATUS_CALLBACK 1                                       // Enable network interface status callbacks
 #define LWIP_NETIF_LINK_CALLBACK 1                                         // Enable link status change callbacks
