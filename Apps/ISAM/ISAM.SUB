@@ -4,13 +4,13 @@ era isamtst.*
 era dxfile.*
 era dxindex.*
 
-gf -f isam/dxisam.c
-gf -f isam/dxisam.h
-gf -f isam/dxindex.c
-gf -f isam/dxfile.c
+ft -g file://isam/dxisam.c
+ft -g file://isam/dxisam.h
+ft -g file://isam/dxindex.c
+ft -g file://isam/dxfile.c
 
-gf -f isam/isamtst.c
-gf -f isam/doctor.c
+ft -g file://isam/isamtst.c
+ft -g file://isam/doctor.c
 
 cc dxindex
 era dxindex.c

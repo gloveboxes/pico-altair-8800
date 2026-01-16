@@ -1,7 +1,7 @@
-gf -f vibe/vibe.asm
-gf -f vibe/vibe.asm
-gf -f vibe/vibe.asm
-gf -f vibe/vibe.asm
+ft -g file://vibe/vibe.asm
+ft -g file://vibe/vibe.asm
+ft -g file://vibe/vibe.asm
+ft -g file://vibe/vibe.asm
 
 b:asm vibe
 b:load vibe

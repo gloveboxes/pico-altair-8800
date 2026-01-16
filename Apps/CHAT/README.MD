@@ -9,7 +9,7 @@
 
 ```shell
 b:
-gf -f chat/chat.sub
+ft -g file://chat/chat.sub
 submit chat
 ```
 

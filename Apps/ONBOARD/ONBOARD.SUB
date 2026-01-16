@@ -1,9 +1,9 @@
-gf -f sdk/dxtimer.c
-gf -f sdk/dxtimer.h
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
 
 cc dxtimer
 
-gf -f onboard/onboard.c
+ft -g file://onboard/onboard.c
 
 cc onboard
 clink onboard dxtimer long

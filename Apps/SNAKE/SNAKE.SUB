@@ -1,11 +1,11 @@
-gf -f sdk/dxtimer.c
-gf -f sdk/dxtimer.h
-gf -f sdk/dxterm.c
-gf -f sdk/dxterm.h
-gf -f sdk/dxsys.h
-gf -f sdk/dxsys.C
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
+ft -g file://sdk/dxterm.c
+ft -g file://sdk/dxterm.h
+ft -g file://sdk/dxsys.h
+ft -g file://sdk/dxsys.C
 
-gf -f snake/snake.c
+ft -g file://snake/snake.c
 
 cc dxsys
 cc dxtimer

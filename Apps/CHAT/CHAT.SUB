@@ -3,17 +3,17 @@ era chat.com
 era chat.c
 era chat.crl
 
-gf -f chat/chat.c
-gf -f chat/chat.sys
-gf -f chat/chat.cfg
-gf -f chat/chatjson.c
-gf -f chat/chatjson.h
+ft -g file://chat/chat.c
+ft -g file://chat/chat.sys
+ft -g file://chat/chat.cfg
+ft -g file://chat/chatjson.c
+ft -g file://chat/chatjson.h
 
-gf -f sdk/dxtimer.c
-gf -f sdk/dxtimer.h
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
 
-gf -f sdk/dxterm.c
-gf -f sdk/dxterm.h
+ft -g file://sdk/dxterm.c
+ft -g file://sdk/dxterm.h
 
 cc dxterm
 cc dxtimer
