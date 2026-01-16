@@ -6,6 +6,9 @@
 - **Impact**: Zero-latency keyboard response - every keystroke now transmits immediately to the Pico emulator instead of being queued for 10ms.
 - **Retained Server-Side Batching**: C-side websocket_console.c continues to batch output every 20ms for efficient network transmission.
 
+## 📦 Library Updates
+- **pico-ws-server**: Switched to cadouthat/pico-ws-server fork with merged PING/PONG support (PR #15).
+
 ---
 
 # Changelog - Build 956 (2026-01-16)
