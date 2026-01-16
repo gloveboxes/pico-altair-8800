@@ -2,13 +2,15 @@ ft -g file://sdk/dxtimer.c
 ft -g file://sdk/dxtimer.h
 ft -g file://sdk/dxterm.c
 ft -g file://sdk/dxterm.h
-
+ft -g file//sdk/dxsys.c
+ft -g file//sdk/dxsys.h
 ft -g file://breakout/breakout.c
 
+cc dxsys
 cc dxtimer
 cc dxterm
 cc breakout
-clink breakout dxterm dxtimer
+clink breakout dxterm dxtimer dxsys
 
 a:pip a:breakout.com=breakout.com
 
