@@ -359,33 +359,16 @@
       }
 
       /**
-       * Buffered input to batch rapid keystrokes/pasts into single packets
+       * Send input immediately without buffering
        */
       function queueInput(data) {
         if (!data) return;
 
-        // Add to buffer
         if (typeof data === "string") {
-          for (let i = 0; i < data.length; i++) {
-            state.inputBuffer.push(data.charCodeAt(i));
-          }
+          sendToServer(state.encoder.encode(data));
         } else if (data instanceof Uint8Array) {
-          data.forEach(b => state.inputBuffer.push(b));
+          sendToServer(data);
         }
-
-        // Schedule flush if not already pending
-        if (!state.inputTimer) {
-          state.inputTimer = setTimeout(flushInput, 10); // 10ms batching window
-        }
-      }
-
-      function flushInput() {
-        state.inputTimer = null;
-        if (state.inputBuffer.length === 0) return;
-
-        const data = new Uint8Array(state.inputBuffer);
-        state.inputBuffer = [];
-        sendToServer(data);
       }
 
       function writeToTerminal(text) {

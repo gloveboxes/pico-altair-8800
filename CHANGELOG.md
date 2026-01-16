@@ -1,3 +1,13 @@
+# Changelog - Build 1073 (2026-01-18)
+
+## ⚡ WebSocket Terminal Input Latency Optimization
+- **Removed Input Buffering**: Eliminated 10ms batching delay for keyboard and paste input in WebSocket terminal client.
+- **Immediate Input Transmission**: Modified `queueInput()` in [Terminal/index.html](Terminal/index.html) to send data directly to WebSocket without timer-based accumulation.
+- **Impact**: Zero-latency keyboard response - every keystroke now transmits immediately to the Pico emulator instead of being queued for 10ms.
+- **Retained Server-Side Batching**: C-side websocket_console.c continues to batch output every 20ms for efficient network transmission.
+
+---
+
 # Changelog - Build 956 (2026-01-16)
 
 ## 🌐 WebSocket Multi-Client & lwIP TCP Segment Exhaustion Fix
