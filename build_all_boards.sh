@@ -32,7 +32,7 @@ echo ""
 
 # Array of boards to test
 # Note: Display 2.8 and large patch pool require RP2350 (520KB RAM) - pico/pico_w only have 264KB
-BOARDS=("pico" "pico2" "pico2_w_rfs" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_display28_rfs" "pico2_w_display28_rfs" "pico2_w_waveshare2_rfs" "pico2_w_inky_rfs" "pico_w_rfs" "pico_w_inky_rfs")
+BOARDS=("pico" "pico2" "pico2_w_rfs" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_waveshare2_rfs" "pico2_w_display28_rfs" "pico2_w_waveshare2_rfs" "pico2_w_inky_rfs" "pico_w_rfs" "pico_w_inky_rfs")
 
 # Create tests directory (clean slate)
 TESTS_DIR="${SCRIPT_DIR}/tests"
