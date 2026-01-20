@@ -17,10 +17,13 @@
 #include "cyw43.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
+#include "lwip/apps/mdns.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
+#include "pico/unique_id.h"
 #include "wifi.h"
 #include "ws.h"
+#include "captive_portal/captive_portal.h"
 #ifdef REMOTE_FS_SUPPORT
 #include "Altair8800/remote_fs.h"
 #endif
@@ -38,6 +41,7 @@ static void websocket_console_core1_entry(void);
 volatile bool console_running = false;
 volatile bool console_initialized = false;
 volatile bool wifi_connected = false;
+volatile bool ap_mode_active = false;
 volatile bool pending_ws_output = false;
 volatile bool pending_ws_input = false;
 
@@ -49,6 +53,46 @@ static struct repeating_timer ws_output_timer;
 
 // Timer for periodic WebSocket input
 static struct repeating_timer ws_input_timer;
+
+static bool mdns_started = false;
+static char mdns_hostname[32] = {0};
+
+static void start_mdns(struct netif* netif)
+{
+    if (mdns_started || !netif)
+    {
+        return;
+    }
+
+    if (mdns_hostname[0] == '\0')
+    {
+        pico_unique_board_id_t board_id;
+        pico_get_unique_board_id(&board_id);
+        // Use last 4 bytes for a short, stable suffix
+        snprintf(mdns_hostname, sizeof(mdns_hostname),
+                 "altair-8800-%02x%02x%02x%02x",
+                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 4],
+                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 3],
+                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 2],
+                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 1]);
+    }
+
+    const char* hostname = mdns_hostname;
+    netif_set_hostname(netif, hostname);
+
+    mdns_resp_init();
+
+    s8_t err = mdns_resp_add_netif(netif, hostname);
+    if (err < 0)
+    {
+        printf("[Core1] mDNS add netif failed (err=%d)\n", err);
+        return;
+    }
+
+    mdns_resp_add_service(netif, "Altair 8800", "_http", DNSSD_PROTO_TCP, 80, NULL, NULL);
+    mdns_started = true;
+    printf("[Core1] mDNS started: %s.local\n", hostname);
+}
 
 // Timer callback for output - fires every 20ms
 static bool ws_output_timer_callback(struct repeating_timer* t)
@@ -66,14 +110,23 @@ static bool ws_input_timer_callback(struct repeating_timer* t)
     return true; // Keep repeating
 }
 
-static bool wifi_init(void)
+// WiFi initialization result
+typedef enum
+{
+    WIFI_INIT_OK,           // Connected to WiFi successfully
+    WIFI_INIT_NO_CREDS,     // No credentials configured - start AP mode
+    WIFI_INIT_CONNECT_FAIL, // Connection failed - start AP mode
+    WIFI_INIT_HW_FAIL       // Hardware initialization failed
+} wifi_init_result_t;
+
+static wifi_init_result_t wifi_init(void)
 {
     printf("[Core1] Initializing CYW43...\n");
     if (cyw43_arch_init())
     {
         printf("[Core1] CYW43 init failed\n");
         wifi_set_ready(false);
-        return false;
+        return WIFI_INIT_HW_FAIL;
     }
 
     wifi_set_ready(true);
@@ -87,8 +140,8 @@ static bool wifi_init(void)
     // Check if credentials were loaded successfully
     if (!credentials_loaded || ssid[0] == '\0')
     {
-        printf("[Core1] No WiFi credentials configured, Wi-Fi unavailable\n");
-        return false;
+        printf("[Core1] No WiFi credentials configured, switching to AP mode\n");
+        return WIFI_INIT_NO_CREDS;
     }
 
     printf("[Core1] Using stored credentials from flash\n");
@@ -103,9 +156,9 @@ static bool wifi_init(void)
 
     if (err != 0)
     {
-        printf("[Core1] Wi-Fi connect failed (err=%d)\n", err);
+        printf("[Core1] Wi-Fi connect failed (err=%d), switching to AP mode\n", err);
         wifi_set_connected(false);
-        return false;
+        return WIFI_INIT_CONNECT_FAIL;
     }
 
     wifi_set_connected(true);
@@ -124,10 +177,11 @@ static bool wifi_init(void)
             ip4addr_ntoa_r(addr, ip_address_buffer, sizeof(ip_address_buffer));
             wifi_set_ip_address(ip_address_buffer); // Cache for display
         }
+        start_mdns(netif);
     }
 
     printf("[Core1] Wi-Fi connected. IP: %s\n", ip_address_buffer);
-    return true;
+    return WIFI_INIT_OK;
 }
 
 void websocket_console_start(void)
@@ -172,21 +226,34 @@ const char* get_connected_ssid(void)
     return connected_ssid[0] != '\0' ? connected_ssid : NULL;
 }
 
+bool is_ap_mode_active(void)
+{
+    return ap_mode_active;
+}
+
 bool websocket_console_is_running(void)
 {
     return console_running && wifi_connected && ws_is_running();
 }
 
+const char* get_mdns_hostname(void)
+{
+    return mdns_started && mdns_hostname[0] != '\0' ? mdns_hostname : NULL;
+}
+
 static void websocket_console_core1_entry(void)
 {
     // Initialize Wi-Fi on core 1
-    bool wifi_ok = wifi_init();
-    wifi_connected = wifi_ok;
+    wifi_init_result_t result = wifi_init();
+    wifi_connected = (result == WIFI_INIT_OK);
 
     // Signal core 0: send 0 for failure, or raw IP address (32-bit) for success
+    // For AP mode, we send a special value (0xFFFFFFFF) to indicate AP mode is active
     uint32_t ip_raw = 0;
-    if (wifi_ok)
+
+    if (result == WIFI_INIT_OK)
     {
+        // STA mode - connected to WiFi
         struct netif* netif = netif_default;
         if (netif && netif_is_up(netif))
         {
@@ -196,38 +263,67 @@ static void websocket_console_core1_entry(void)
                 ip_raw = ip4_addr_get_u32(addr);
             }
         }
-    }
-    multicore_fifo_push_blocking(ip_raw);
+        multicore_fifo_push_blocking(ip_raw);
 
-    if (!wifi_ok)
-    {
-        printf("[Core1] Wi-Fi unavailable, network task exiting\n");
-        return;
-    }
+        // Initialize and start WebSocket server
+        if (!websocket_console_init_server())
+        {
+            printf("[Core1] Failed to start WebSocket server\n");
+            return;
+        }
 
-    // Initialize and start WebSocket server
-    if (!websocket_console_init_server())
-    {
-        printf("[Core1] Failed to start WebSocket server\n");
-        return;
-    }
+        // Mark console as initialized only after successful network stack initialization
+        console_initialized = true;
+        printf("[Core1] WebSocket server running, entering poll loop\n");
 
-    // Mark console as initialized only after successful network stack initialization
-    console_initialized = true;
-    printf("[Core1] WebSocket server running, entering poll loop\n");
-
-    // Main poll loop - all CYW43/lwIP access stays on core 1
-    while (true)
-    {
-        cyw43_arch_poll();
-        ws_poll(&pending_ws_input, &pending_ws_output);
+        // Main poll loop - all CYW43/lwIP access stays on core 1
+        while (true)
+        {
+            cyw43_arch_poll();
+            ws_poll(&pending_ws_input, &pending_ws_output);
 #ifdef REMOTE_FS_SUPPORT
-        // Poll remote FS client
-        rfs_client_poll();
+            // Poll remote FS client
+            rfs_client_poll();
 #endif
-        http_poll(); // Poll for HTTP file transfer requests
-        ft_client_poll(); // Poll file transfer client
-        tight_loop_contents();
+            http_poll(); // Poll for HTTP file transfer requests
+            ft_client_poll(); // Poll file transfer client
+            tight_loop_contents();
+        }
+    }
+    else if (result == WIFI_INIT_NO_CREDS || result == WIFI_INIT_CONNECT_FAIL)
+    {
+        // Start captive portal in AP mode
+        printf("[Core1] Starting captive portal for WiFi configuration...\n");
+
+        if (captive_portal_start())
+        {
+            ap_mode_active = true;
+            // Signal core 0 with special value (0xFFFFFFFF) to indicate AP mode
+            // Core 0 will then spin in RAM, which is safe during flash operations
+            multicore_fifo_push_blocking(0xFFFFFFFF);
+
+            // AP mode poll loop
+            printf("[Core1] Captive portal running, entering poll loop\n");
+            while (true)
+            {
+                cyw43_arch_poll();
+                captive_portal_poll();
+                tight_loop_contents();
+            }
+        }
+        else
+        {
+            printf("[Core1] Failed to start captive portal\n");
+            multicore_fifo_push_blocking(0);
+            return;
+        }
+    }
+    else
+    {
+        // Hardware failure
+        multicore_fifo_push_blocking(0);
+        printf("[Core1] Wi-Fi hardware unavailable, network task exiting\n");
+        return;
     }
 }
 
@@ -244,6 +340,11 @@ uint32_t wait_for_wifi(void)
 }
 
 bool websocket_console_is_running(void)
+{
+    return false;
+}
+
+bool is_ap_mode_active(void)
 {
     return false;
 }

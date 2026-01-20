@@ -18,9 +18,11 @@
 #include "config.h"
 #include "cpu_state.h"
 #include "hardware/timer.h"
+#include "hardware/watchdog.h"
 #include "io_ports.h"
 #include "pico/error.h"
 #include "pico/stdlib.h"
+#include "pico/platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +47,20 @@ extern intel8080_t cpu;
 static uint8_t terminal_read(void);
 static void terminal_write(uint8_t c);
 static inline uint8_t sense(void);
+
+// RAM-resident spin function for AP mode - must not execute from flash
+// during flash erase/program operations. Disables interrupts to prevent
+// any interrupt handlers from executing from flash.
+static void __not_in_flash_func(spin_in_ram)(void)
+{
+    // Disable all interrupts on this core - interrupt handlers might be in flash
+    __asm volatile ("cpsid i" : : : "memory");
+    
+    while (1)
+    {
+        __asm volatile("nop");
+    }
+}
 
 // Static disk controller reference for reset
 static disk_controller_t* g_disk_controller = NULL;
@@ -194,34 +210,32 @@ static inline uint8_t sense(void)
 // Initialize and configure WiFi
 static void setup_wifi(void)
 {
-
-    // WiFi configuration system already initialized in main()
-
-    // Determine timeout based on whether credentials exist
-    uint32_t config_timeout;
+    // Check for stored WiFi credentials and offer option to clear
     if (config_exists())
     {
         printf("\nWiFi credentials found in flash storage.\n");
-        config_timeout = 5000; // 5 seconds if credentials exist
+        printf("Press 'C' within 5 seconds to clear config and enter AP mode...\n");
+        
+        absolute_time_t start_time = get_absolute_time();
+        while (absolute_time_diff_us(start_time, get_absolute_time()) < 5000000)
+        {
+            int c = getchar_timeout_us(100000); // Check every 100ms
+            if (c == 'C' || c == 'c')
+            {
+                printf("\nClearing WiFi configuration...\n");
+                config_clear();
+                printf("Config cleared. Rebooting into AP mode...\n");
+                sleep_ms(1000);
+                // Reboot the device
+                watchdog_enable(1, 1);
+                while (1) tight_loop_contents();
+            }
+        }
+        printf("\n");
     }
     else
     {
-        printf("\nNo WiFi credentials found in flash storage.\n");
-        config_timeout = 15000; // 15 seconds if no credentials
-    }
-
-    // Give user the option to configure/update WiFi
-    if (!config_prompt_and_save(config_timeout))
-    {
-        // User didn't configure, use existing credentials if available
-        if (config_exists())
-        {
-            printf("Using stored WiFi credentials\n");
-        }
-        else
-        {
-            printf("No WiFi credentials configured - WiFi will be unavailable\n");
-        }
+        printf("\nNo WiFi credentials configured - starting captive portal\n");
     }
 
 #if defined(REMOTE_FS_SUPPORT) && !defined(SD_CARD_SUPPORT)
@@ -233,9 +247,19 @@ static void setup_wifi(void)
     websocket_console_start();
 
     // Wait for core 1 to complete Wi-Fi initialization
-    // Returns 0 on failure, or raw 32-bit IP address on success
+    // Returns 0 on failure, raw 32-bit IP address on success, or 0xFFFFFFFF for AP mode
     printf("Waiting for Wi-Fi initialization on core 1...\n");
     uint32_t ip_raw = wait_for_wifi();
+    
+    // Check for AP mode signal - spin in RAM while captive portal runs
+    // This keeps Core 0 safe during flash operations (not executing from flash)
+    if (ip_raw == 0xFFFFFFFF)
+    {
+        printf("AP mode active - Core 0 spinning while captive portal runs...\n");
+        printf("Connect to 'Altair8800-Setup' WiFi to configure.\n");
+        spin_in_ram(); // Never returns - device reboots after config save
+    }
+    
     g_wifi_ok = (ip_raw != 0);
 
     if (g_wifi_ok)
@@ -245,6 +269,12 @@ static void setup_wifi(void)
                  (unsigned long)((ip_raw >> 8) & 0xFF), (unsigned long)((ip_raw >> 16) & 0xFF),
                  (unsigned long)((ip_raw >> 24) & 0xFF));
         printf("Wi-Fi connected. IP: %s\n", g_ip_buffer);
+
+        const char* mdns_name = get_mdns_hostname();
+        if (mdns_name)
+        {
+            printf("mDNS: http://%s.local:8088/\n", mdns_name);
+        }
     }
     else
     {
@@ -302,12 +332,8 @@ int main(void)
 
     if (!config_exists())
     {
-        // No credentials - wait for USB serial connection so user sees WiFi config prompt
-        while (!stdio_usb_connected())
-        {
-            sleep_ms(100);
-        }
-        // Give a brief moment after connection for terminal to be ready
+        // No credentials - start AP mode immediately (do not block on USB serial)
+        // Give USB a brief moment to enumerate if connected, then proceed
         sleep_ms(500);
     }
     else

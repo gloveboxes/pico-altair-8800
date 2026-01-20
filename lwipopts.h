@@ -24,6 +24,7 @@
 #define MEMP_NUM_TCP_PCB 16       // Number of simultaneously active TCP connections - Increased to handle TIME_WAIT
 #define MEMP_NUM_TCP_PCB_LISTEN 5 // Number of listening TCP connections - Increased to prevent lockout
 #define PBUF_POOL_SIZE 24         // Number of buffers in the pbuf pool - Reduced for memory savings
+#define MEMP_NUM_SYS_TIMEOUT 20   // Increase timeouts (mDNS, DHCP, DNS, etc.)
 #define LWIP_ARP 1                // Enable ARP protocol
 #define LWIP_ETHERNET 1           // Enable Ethernet support
 #define LWIP_ICMP 1               // Enable ICMP protocol (ping)
@@ -35,6 +36,7 @@
 #define LWIP_NETIF_STATUS_CALLBACK 1                                       // Enable network interface status callbacks
 #define LWIP_NETIF_LINK_CALLBACK 1                                         // Enable link status change callbacks
 #define LWIP_NETIF_HOSTNAME 1                                              // Support hostname in DHCP requests
+#define LWIP_NUM_NETIF_CLIENT_DATA 1                                       // Required for mDNS responder
 #define LWIP_NETCONN 0                                                     // Disable sequential API (netconn)
 #define MEM_STATS 1                                                        // Enable memory statistics
 #define SYS_STATS 1                                                        // Enable system statistics
@@ -44,9 +46,11 @@
 #define LWIP_CHKSUM_ALGORITHM 3     // Checksum algorithm (3 = optimized)
 #define LWIP_DHCP 1                 // Enable DHCP client
 #define LWIP_IPV4 1                 // Enable IPv4 protocol
+#define LWIP_IGMP 1                 // Enable IGMP for multicast (mDNS)
 #define LWIP_TCP 1                  // Enable TCP protocol
 #define LWIP_UDP 1                  // Enable UDP protocol
 #define LWIP_DNS 1                  // Enable DNS client
+#define LWIP_MDNS_RESPONDER 1        // Enable mDNS responder (Bonjour/zeroconf)
 #define LWIP_HTTPC 1                // Enable HTTP client
 #define LWIP_TCP_KEEPALIVE 1        // Enable TCP keepalive
 #define LWIP_NETIF_TX_SINGLE_PBUF 1 // Put all data to send into one pbuf (for DMA compatibility)

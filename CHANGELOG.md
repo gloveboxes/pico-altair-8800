@@ -1,3 +1,30 @@
+# Changelog - Build 1147 (2026-01-20)
+
+## 🛠 Captive Portal WiFi Config & mDNS
+- **Captive Portal Flow**: AP mode no longer blocks on USB serial when no credentials; it starts immediately after boot.
+- **Safe Flash Writes**: Core 0 enters a RAM-resident spin with interrupts disabled during AP mode to avoid XIP flash conflicts during config saves.
+- **Config Save UX**: Save now returns device info JSON; reboot is deferred to allow HTTP response to flush.
+- **mDNS Support**: Added mDNS responder so devices are reachable via a unique name like `altair-8800-XXXX.local`.
+- **Serial Output**: After WiFi connect, serial output now shows the mDNS URL.
+- **Captive Portal UI**:
+  - Favicon and cleaner input styling for better readability.
+  - DNS box includes Copy and Open buttons plus a clearer Wi‑Fi warning.
+  - Save button updates to “Submitted” after success.
+- **Captive Portal API**: Added /device.json endpoint to return device ID and mDNS name.
+- **lwIP Tuning**: Enabled IGMP and increased timeout pool sizing for mDNS stability.
+
+### Files Updated
+- [main.c](main.c)
+- [comms_mgr.c](comms_mgr.c)
+- [comms_mgr.h](comms_mgr.h)
+- [captive_portal/captive_portal.c](captive_portal/captive_portal.c)
+- [captive_portal/config_page.html](captive_portal/config_page.html)
+- [captive_portal/config_page_hex.h](captive_portal/config_page_hex.h)
+- [lwipopts.h](lwipopts.h)
+- [CMakeLists.txt](CMakeLists.txt)
+
+---
+
 # Changelog - Build 1073 (2026-01-18)
 
 ## ⚡ WebSocket Terminal Input Latency Optimization

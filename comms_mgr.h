@@ -8,3 +8,7 @@
 void websocket_console_start(void);
 uint32_t wait_for_wifi(void);
 const char* get_connected_ssid(void);
+const char* get_mdns_hostname(void);
+
+// Returns true if running in AP mode (captive portal)
+bool is_ap_mode_active(void);

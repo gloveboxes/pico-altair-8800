@@ -177,9 +177,10 @@ if(PICO_CYW43_SUPPORTED)
     list(APPEND ALTAIR_SOURCES 
         wifi.c 
         ws.cpp
+        captive_portal/captive_portal.c
         ${PICO_SDK_PATH}/lib/lwip/src/apps/http/http_client.c
     )
-    list(APPEND ALTAIR_LIBS pico_ws_server)
+    list(APPEND ALTAIR_LIBS pico_ws_server pico_lwip_mdns)
 endif()
 
 
@@ -243,6 +244,7 @@ target_include_directories(altair PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/Altair8800
     ${CMAKE_CURRENT_LIST_DIR}/PortDrivers
     ${CMAKE_CURRENT_LIST_DIR}/FrontPanels
+    ${CMAKE_CURRENT_LIST_DIR}/captive_portal
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 

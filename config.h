@@ -43,8 +43,3 @@ bool config_save(const char* ssid, const char* password, const char* rfs_ip);
 // Clear configuration from flash
 // Returns true if successfully cleared
 bool config_clear(void);
-
-// Prompt user for configuration via serial console
-// Waits up to timeout_ms for 'Y' input, then prompts for all config items
-// Returns true if configuration was entered and saved
-bool config_prompt_and_save(uint32_t timeout_ms);
