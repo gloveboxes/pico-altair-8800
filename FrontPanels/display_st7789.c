@@ -30,7 +30,30 @@ void display_st7789_init(void)
 
 void display_st7789_update(const char* ssid, const char* ip)
 {
-    // Not implemented for async driver
+#ifdef CYW43_WL_GPIO_LED_PIN
+    color_t TEXT_WHITE = rgb332(255, 255, 255);
+    color_t BG_BLACK = rgb332(0, 0, 0);
+
+    // Clear the WiFi info area (bottom right)
+    st7789_async_fill_rect(0, 210, 320, 30, BG_BLACK);
+
+    if (ip != NULL && ip[0] != '\0')
+    {
+        char ip_text[32];
+        snprintf(ip_text, sizeof(ip_text), "WIFI: %s", ip);
+
+        // Calculate width: 5x8 font + 1px spacing = 6px per char
+        int title_len = strlen(ip_text);
+        int title_x = 320 - (title_len * 6) - 2;
+
+        st7789_async_text(ip_text, title_x, 220, TEXT_WHITE);
+        st7789_async_update();
+        printf("[Display] WiFi info updated: %s\n", ip);
+    }
+#else
+    (void)ssid;
+    (void)ip;
+#endif
 }
 
 void display_st7789_set_cpu_led(bool cpu_running)

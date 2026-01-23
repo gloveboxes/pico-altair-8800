@@ -283,31 +283,7 @@ static void setup_wifi(void)
     }
 }
 
-#ifdef DISPLAY_ST7789_SUPPORT
-// Global flag set by timer callback every 20ms
-static volatile bool display_update_pending = false;
 
-// Timer callback - fires every 33ms (~30 Hz)
-static bool display_timer_callback(struct repeating_timer* t)
-{
-    display_update_pending = true;
-    return true; // Keep repeating
-}
-
-// Function to update the display (called from main loop)
-static inline void update_display_if_changed(void)
-{
-    // Construct 10-bit status word for display:
-    // Bits 0-7: CPU status byte (MEMR, INP, M1, OUT, HLTA, STACK, WO, INT)
-    // Bit 9: INTE (Interrupt Enable) flag from CPU flags
-    uint16_t status_word = cpu.cpuStatus;
-    if (cpu.registers.flags & FLAGS_IF)
-        status_word |= (1 << 9);
-
-    // display_st7789_show_front_panel handles change detection internally
-    display_st7789_show_front_panel(cpu.address_bus, cpu.data_bus, status_word);
-}
-#endif
 
 int main(void)
 {
@@ -322,9 +298,7 @@ int main(void)
     printf("=== REMOTE_FS_SUPPORT is defined ===\n");
 #endif
 
-    // Initialize displays early (if enabled)
-    inky_display_init();
-    display_st7789_init();
+    // Note: Display initialization moved to Core 1
 
 #if defined(CYW43_WL_GPIO_LED_PIN)
     // Board has WiFi - check if credentials exist
@@ -577,25 +551,18 @@ int main(void)
     printf("\n");
 
 #if defined(CYW43_WL_GPIO_LED_PIN)
-    // Update displays with system information (if enabled)
+    // Update Inky display with system information (if enabled)
+    // Note: ST7789 display is updated on Core 1 after WiFi connects
     const char* wifi_ssid = g_wifi_ok ? get_connected_ssid() : NULL;
     inky_display_update(wifi_ssid, g_wifi_ok ? g_ip_buffer : NULL);
-    display_st7789_update(wifi_ssid, g_wifi_ok ? g_ip_buffer : NULL);
 #else
     // No WiFi on this board
     inky_display_update(NULL, NULL);
+#ifndef DISPLAY_ST7789_SUPPORT
     display_st7789_update(NULL, NULL);
 #endif
-
-#ifdef DISPLAY_ST7789_SUPPORT
-    printf("\n*** Virtual Front Panel (Core 0 Enabled - Polling) ***\n");
-    display_st7789_init_front_panel();
-
-    // Start hardware timer for display updates (33ms = ~30 Hz)
-    static struct repeating_timer display_timer;
-    add_repeating_timer_ms(-33, display_timer_callback, NULL, &display_timer);
-    printf("Display update timer started (~30 Hz)\n");
 #endif
+
     // ============================================
 
     // Main emulation loop - core 0 dedicated to CPU emulation
@@ -629,14 +596,5 @@ int main(void)
                 tight_loop_contents(); // hint to compiler; no-op but lowers power
                 break;
         }
-
-#ifdef DISPLAY_ST7789_SUPPORT
-        // Check if display update is pending (set by timer callback every 20ms)
-        if (display_update_pending)
-        {
-            display_update_pending = false;
-            update_display_if_changed();
-        }
-#endif
     }
 }

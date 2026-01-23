@@ -10,6 +10,16 @@
 #include "PortDrivers/files_io.h"
 #include "websocket_console.h"
 
+#ifdef DISPLAY_ST7789_SUPPORT
+#include "FrontPanels/display_st7789.h"
+#include "cpu_state.h"
+#include "Altair8800/intel8080.h"
+#endif
+
+#ifdef INKY_SUPPORT
+#include "FrontPanels/inky_display.h"
+#endif
+
 // Enable WiFi/WebSocket functionality only if board has WiFi capability
 #if defined(CYW43_WL_GPIO_LED_PIN)
 
@@ -33,8 +43,9 @@
 #endif
 
 #define WIFI_CONNECT_TIMEOUT_MS 30000
-#define WS_OUTPUT_TIMER_INTERVAL_MS 20
-#define WS_INPUT_TIMER_INTERVAL_MS 5
+#define WS_OUTPUT_TIMER_INTERVAL_MS 15
+#define WS_INPUT_TIMER_INTERVAL_MS 3
+#define DISPLAY_UPDATE_INTERVAL_MS 40  // 25 Hz display refresh
 
 static void websocket_console_core1_entry(void);
 
@@ -53,6 +64,15 @@ static struct repeating_timer ws_output_timer;
 
 // Timer for periodic WebSocket input
 static struct repeating_timer ws_input_timer;
+
+#ifdef DISPLAY_ST7789_SUPPORT
+// Timer for periodic display updates (Core 1)
+static struct repeating_timer display_update_timer;
+static volatile bool pending_display_update = false;
+
+// External CPU reference for display updates
+extern intel8080_t cpu;
+#endif
 
 static bool mdns_started = false;
 static char mdns_hostname[32] = {0};
@@ -109,6 +129,36 @@ static bool ws_input_timer_callback(struct repeating_timer* t)
     pending_ws_input = true;
     return true; // Keep repeating
 }
+
+#ifdef DISPLAY_ST7789_SUPPORT
+// Timer callback for display updates - fires every 33ms (~30 Hz)
+static bool display_update_timer_callback(struct repeating_timer* t)
+{
+    (void)t;
+    pending_display_update = true;
+    return true; // Keep repeating
+}
+
+// Display update function for Core 1
+static inline void update_display_if_pending(void)
+{
+    if (!pending_display_update)
+    {
+        return;
+    }
+    pending_display_update = false;
+
+    // Construct 10-bit status word for display:
+    // Bits 0-7: CPU status byte (MEMR, INP, M1, OUT, HLTA, STACK, WO, INT)
+    // Bit 9: INTE (Interrupt Enable) flag from CPU flags
+    uint16_t status_word = cpu.cpuStatus;
+    if (cpu.registers.flags & FLAGS_IF)
+        status_word |= (1 << 9);
+
+    // display_st7789_show_front_panel handles change detection internally
+    display_st7789_show_front_panel(cpu.address_bus, cpu.data_bus, status_word);
+}
+#endif
 
 // WiFi initialization result
 typedef enum
@@ -200,15 +250,8 @@ void websocket_console_start(void)
     rfs_client_init();
 #endif
 
-    // Start the WebSocket output timer (20ms fixed interval)
-    add_repeating_timer_ms(-WS_OUTPUT_TIMER_INTERVAL_MS, ws_output_timer_callback, NULL, &ws_output_timer);
-    printf("Started WebSocket output timer (%dms interval)\n", WS_OUTPUT_TIMER_INTERVAL_MS);
-
-    // Start the WebSocket input timer (10ms fixed interval)
-    add_repeating_timer_ms(-WS_INPUT_TIMER_INTERVAL_MS, ws_input_timer_callback, NULL, &ws_input_timer);
-    printf("Started WebSocket input timer (%dms interval)\n", WS_INPUT_TIMER_INTERVAL_MS);
-
     // Launch core 1 which will handle all Wi-Fi and WebSocket operations
+    // Timers are started on core 1 so callbacks execute there
     multicore_launch_core1(websocket_console_core1_entry);
     console_running = true;
     printf("Launched network task on core 1\n");
@@ -243,6 +286,26 @@ const char* get_mdns_hostname(void)
 
 static void websocket_console_core1_entry(void)
 {
+    // Start timers on core 1 so callbacks execute here
+    add_repeating_timer_ms(-WS_OUTPUT_TIMER_INTERVAL_MS, ws_output_timer_callback, NULL, &ws_output_timer);
+    printf("[Core1] Started WebSocket output timer (%dms interval)\n", WS_OUTPUT_TIMER_INTERVAL_MS);
+
+    add_repeating_timer_ms(-WS_INPUT_TIMER_INTERVAL_MS, ws_input_timer_callback, NULL, &ws_input_timer);
+    printf("[Core1] Started WebSocket input timer (%dms interval)\n", WS_INPUT_TIMER_INTERVAL_MS);
+
+#ifdef INKY_SUPPORT
+    inky_display_init();
+    printf("[Core1] Inky display initialized\n");
+#endif
+
+#ifdef DISPLAY_ST7789_SUPPORT
+    add_repeating_timer_ms(-DISPLAY_UPDATE_INTERVAL_MS, display_update_timer_callback, NULL, &display_update_timer);
+    printf("[Core1] Started display update timer (%dms interval, ~30 Hz)\n", DISPLAY_UPDATE_INTERVAL_MS);
+    display_st7789_init();
+    display_st7789_init_front_panel();
+    printf("[Core1] Virtual Front Panel initialized\n");
+#endif
+
     // Initialize Wi-Fi on core 1
     wifi_init_result_t result = wifi_init();
     wifi_connected = (result == WIFI_INIT_OK);
@@ -276,6 +339,12 @@ static void websocket_console_core1_entry(void)
         console_initialized = true;
         printf("[Core1] WebSocket server running, entering poll loop\n");
 
+#ifdef DISPLAY_ST7789_SUPPORT
+        // Update display with WiFi info now that we're connected
+        display_st7789_update(connected_ssid, ip_address_buffer);
+        printf("[Core1] Display updated with WiFi info\n");
+#endif
+
         // Main poll loop - all CYW43/lwIP access stays on core 1
         while (true)
         {
@@ -287,6 +356,9 @@ static void websocket_console_core1_entry(void)
 #endif
             http_poll(); // Poll for HTTP file transfer requests
             ft_client_poll(); // Poll file transfer client
+#ifdef DISPLAY_ST7789_SUPPORT
+            update_display_if_pending(); // Update display if timer triggered
+#endif
             tight_loop_contents();
         }
     }
