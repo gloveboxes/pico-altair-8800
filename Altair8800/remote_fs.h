@@ -73,7 +73,7 @@ typedef struct
 } rfs_response_t;
 
 // ============================================================================
-// Core 1 API (called from comms_mgr.c poll loop)
+// Core 1 API (called from core1_io_mgr.c poll loop)
 // ============================================================================
 
 /**

@@ -106,7 +106,7 @@ set(ALTAIR_SOURCES
     PortDrivers/stats_io.c
     websocket_console.c
     config.c
-    comms_mgr.c
+    core1_io_mgr.c
 )
 
 # Conditionally add Display 2.8 sources

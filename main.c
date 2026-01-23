@@ -14,7 +14,7 @@
 #include "FrontPanels/display_st7789.h"
 #include "FrontPanels/inky_display.h"
 #include "build_version.h"
-#include "comms_mgr.h"
+#include "core1_io_mgr.h"
 #include "config.h"
 #include "cpu_state.h"
 #include "hardware/timer.h"

@@ -15,8 +15,8 @@
 
 ### Files Updated
 - [main.c](main.c)
-- [comms_mgr.c](comms_mgr.c)
-- [comms_mgr.h](comms_mgr.h)
+- [core1_io_mgr.c](core1_io_mgr.c)
+- [core1_io_mgr.h](core1_io_mgr.h)
 - [captive_portal/captive_portal.c](captive_portal/captive_portal.c)
 - [captive_portal/config_page.html](captive_portal/config_page.html)
 - [captive_portal/config_page_hex.h](captive_portal/config_page_hex.h)

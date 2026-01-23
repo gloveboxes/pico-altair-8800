@@ -7,7 +7,7 @@ bool wifi_is_ready(void);
 bool wifi_is_connected(void);
 bool wifi_get_ip(char* buffer, size_t length);
 
-// Set WiFi state (should be called by comms_mgr)
+// Set WiFi state (should be called by core1_io_mgr)
 void wifi_set_ready(bool ready);
 void wifi_set_connected(bool connected);
 
