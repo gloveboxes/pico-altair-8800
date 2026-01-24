@@ -33,13 +33,17 @@ int e_count();
 int e_clear();
 int e_exists();
 
+/* LONG library function declarations (32-bit math) */
+char *atol();   /* char *atol(result, s) - ascii to long */
+char *ltoa();   /* char *ltoa(result, op1) - long to ascii */
+char *ladd();   /* char *ladd(result, op1, op2) - add */
+char *itol();   /* char *itol(result, n) - int to long */
+
 /* Forward declarations */
 int prntvar();
 int parsarg();
 int shwhelp();
 int isnum();
-int e_atoi();
-int e_itoa();
 
 /* ------------------------------------------------------------
  * isnum - Check if string is a number (with optional +/- prefix)
@@ -60,64 +64,6 @@ char *s;
         i++;
     }
     return 1;
-}
-
-/* ------------------------------------------------------------
- * e_atoi - Convert string to integer
- * ------------------------------------------------------------ */
-int e_atoi(s)
-char *s;
-{
-    int n, neg, i;
-    n = 0;
-    neg = 0;
-    i = 0;
-    if (s[i] == '-') {
-        neg = 1;
-        i++;
-    } else if (s[i] == '+') {
-        i++;
-    }
-    while (s[i] >= '0' && s[i] <= '9') {
-        n = n * 10 + (s[i] - '0');
-        i++;
-    }
-    if (neg)
-        return -n;
-    return n;
-}
-
-/* ------------------------------------------------------------
- * e_itoa - Convert integer to string, return length
- * ------------------------------------------------------------ */
-int e_itoa(n, s)
-int n;
-char *s;
-{
-    int i, j, neg;
-    char tmp[12];
-    
-    neg = 0;
-    if (n < 0) {
-        neg = 1;
-        n = -n;
-    }
-    
-    /* Build digits in reverse */
-    i = 0;
-    do {
-        tmp[i++] = '0' + (n % 10);
-        n = n / 10;
-    } while (n > 0);
-    
-    /* Copy to output with sign */
-    j = 0;
-    if (neg)
-        s[j++] = '-';
-    while (i > 0)
-        s[j++] = tmp[--i];
-    s[j] = 0;
-    return j;
 }
 
 /* ------------------------------------------------------------
@@ -208,7 +154,7 @@ int argc;
 char *argv[];
 {
     int rc, cnt, i, j, k;
-    int cur, delta, newval;   /* For numeric operations */
+    char lcur[4], ldelta[4], lres[4];  /* 32-bit long integers */
     char lkey[E_KEYSZ];   /* Local key buffer */
     char lval[E_VALSZ];   /* Local val buffer */
     
@@ -303,6 +249,7 @@ char *argv[];
     
     /* Check for increment/decrement: ENV NAME +N or ENV NAME -N */
     if (argc >= 3 && isnum(argv[2])) {
+        char *deltastr;
         
         /* Get current value */
         rc = e_get(argv[1], lval);
@@ -312,17 +259,21 @@ char *argv[];
                 printf("Error: %s is not numeric\r\n", argv[1]);
                 return 1;
             }
-            cur = e_atoi(lval);
+            atol(lcur, lval);  /* Convert to 32-bit long */
         } else {
-            cur = 0;  /* Start from 0 if not exists */
+            itol(lcur, 0);  /* Start from 0 if not exists */
         }
         
-        /* Apply delta */
-        delta = e_atoi(argv[2]);
-        newval = cur + delta;
+        /* Apply delta using 32-bit math */
+        /* Skip '+' sign since atol only handles '-' */
+        deltastr = argv[2];
+        if (*deltastr == '+')
+            deltastr++;
+        atol(ldelta, deltastr);
+        ladd(lres, lcur, ldelta);
         
         /* Convert back to string and save */
-        e_itoa(newval, lval);
+        ltoa(lval, lres);
         rc = e_set(argv[1], lval);
         
         if (rc == E_OK)
