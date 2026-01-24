@@ -70,7 +70,18 @@
 char e_buf[E_RECSZ];
 
 /* ------------------------------------------------------------
- * e_cmpkey - Compare two keys (case-sensitive)
+ * e_toupr - Convert char to uppercase
+ * ------------------------------------------------------------ */
+int e_toupr(c)
+int c;
+{
+    if (c >= 'a' && c <= 'z')
+        return c - 32;
+    return c;
+}
+
+/* ------------------------------------------------------------
+ * e_cmpkey - Compare two keys (case-insensitive)
  * Returns 0 if equal, non-zero otherwise
  * ------------------------------------------------------------ */
 int e_cmpkey(k1, k2)
@@ -79,7 +90,7 @@ char *k2;
 {
     int i;
     for (i = 0; i < E_KEYSZ - 1; i++) {
-        if (k1[i] != k2[i])
+        if (e_toupr(k1[i]) != e_toupr(k2[i]))
             return 1;
         if (k1[i] == 0)
             return 0;
@@ -236,9 +247,15 @@ char *key;
 char *val;
 {
     int fd, slot;
+    char lkey[E_KEYSZ];
+    char lval[E_VALSZ];
+    
+    /* Copy key/val to local buffers first (avoid global overlap) */
+    e_cpystr(lkey, key, E_KEYSZ);
+    e_cpystr(lval, val, E_VALSZ);
     
     /* Check if key exists */
-    slot = e_find(key);
+    slot = e_find(lkey);
     if (slot < 0) {
         /* New entry - find empty slot */
         slot = e_slots();
@@ -249,8 +266,8 @@ char *val;
     /* Build record */
     e_clrbuf();
     e_buf[0] = E_ACTIVE;
-    e_cpystr(&e_buf[1], key, E_KEYSZ);
-    e_cpystr(&e_buf[17], val, E_VALSZ);
+    e_cpystr(&e_buf[1], lkey, E_KEYSZ);
+    e_cpystr(&e_buf[17], lval, E_VALSZ);
     
     /* Write record */
     fd = open(E_FNAME, 2);
@@ -342,4 +359,62 @@ int (*cb)();
     
     close(fd);
     return cnt;
+}
+
+/* ------------------------------------------------------------
+ * e_count - Count active environment variables
+ * Returns count of variables
+ * ------------------------------------------------------------ */
+int e_count()
+{
+    int fd, slot, cnt;
+    
+    fd = open(E_FNAME, 0);
+    if (fd == ERROR)
+        return 0;
+    
+    cnt = 0;
+    for (slot = 0; slot < E_MAXREC; slot++) {
+        if (seek(fd, slot, 0) == ERROR)
+            break;
+        if (read(fd, e_buf, 1) != 1)
+            break;
+        
+        if (e_buf[0] == E_ACTIVE)
+            cnt++;
+    }
+    
+    close(fd);
+    return cnt;
+}
+
+/* ------------------------------------------------------------
+ * e_clear - Delete all environment variables
+ * Returns E_OK on success
+ * ------------------------------------------------------------ */
+int e_clear()
+{
+    int fd;
+    
+    /* Simply delete and recreate the file */
+    unlink(E_FNAME);
+    
+    fd = creat(E_FNAME);
+    if (fd == ERROR)
+        return E_EOPEN;
+    
+    close(fd);
+    return E_OK;
+}
+
+/* ------------------------------------------------------------
+ * e_exists - Check if key exists
+ * Returns 1 if exists, 0 if not
+ * ------------------------------------------------------------ */
+int e_exists(key)
+char *key;
+{
+    int slot;
+    slot = e_find(key);
+    return (slot >= 0) ? 1 : 0;
 }

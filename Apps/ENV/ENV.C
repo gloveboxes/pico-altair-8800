@@ -5,7 +5,13 @@
  *   ENV              - List all variables
  *   ENV NAME         - Show value of NAME
  *   ENV NAME=VALUE   - Set NAME to VALUE
+ *   ENV NAME +N      - Add N to numeric NAME
+ *   ENV NAME -N      - Subtract N from numeric NAME
  *   ENV -D NAME      - Delete NAME
+ *   ENV -C           - Clear all variables
+ *   ENV -N           - Show count of variables
+ *   ENV -I NAME=VAL  - Set only if NAME not defined
+ *   ENV -H           - Show help
  * ============================================================
  */
 
@@ -23,14 +29,120 @@ int e_get();
 int e_set();
 int e_del();
 int e_list();
+int e_count();
+int e_clear();
+int e_exists();
 
 /* Forward declarations */
 int prntvar();
 int parsarg();
+int shwhelp();
+int isnum();
+int e_atoi();
+int e_itoa();
 
-/* Global buffers */
-char g_key[E_KEYSZ];
-char g_val[E_VALSZ];
+/* ------------------------------------------------------------
+ * isnum - Check if string is a number (with optional +/- prefix)
+ * Returns 1 if numeric, 0 otherwise
+ * ------------------------------------------------------------ */
+int isnum(s)
+char *s;
+{
+    int i;
+    i = 0;
+    if (s[i] == '+' || s[i] == '-')
+        i++;
+    if (s[i] == 0)
+        return 0;  /* Just sign, no digits */
+    while (s[i]) {
+        if (s[i] < '0' || s[i] > '9')
+            return 0;
+        i++;
+    }
+    return 1;
+}
+
+/* ------------------------------------------------------------
+ * e_atoi - Convert string to integer
+ * ------------------------------------------------------------ */
+int e_atoi(s)
+char *s;
+{
+    int n, neg, i;
+    n = 0;
+    neg = 0;
+    i = 0;
+    if (s[i] == '-') {
+        neg = 1;
+        i++;
+    } else if (s[i] == '+') {
+        i++;
+    }
+    while (s[i] >= '0' && s[i] <= '9') {
+        n = n * 10 + (s[i] - '0');
+        i++;
+    }
+    if (neg)
+        return -n;
+    return n;
+}
+
+/* ------------------------------------------------------------
+ * e_itoa - Convert integer to string, return length
+ * ------------------------------------------------------------ */
+int e_itoa(n, s)
+int n;
+char *s;
+{
+    int i, j, neg;
+    char tmp[12];
+    
+    neg = 0;
+    if (n < 0) {
+        neg = 1;
+        n = -n;
+    }
+    
+    /* Build digits in reverse */
+    i = 0;
+    do {
+        tmp[i++] = '0' + (n % 10);
+        n = n / 10;
+    } while (n > 0);
+    
+    /* Copy to output with sign */
+    j = 0;
+    if (neg)
+        s[j++] = '-';
+    while (i > 0)
+        s[j++] = tmp[--i];
+    s[j] = 0;
+    return j;
+}
+
+/* ------------------------------------------------------------
+ * shwhelp - Show usage help
+ * ------------------------------------------------------------ */
+int shwhelp()
+{
+    printf("ENV - Environment Variable Manager\r\n");
+    printf("==================================\r\n");
+    printf("Usage:\r\n");
+    printf("  ENV           List all variables\r\n");
+    printf("  ENV NAME      Show value of NAME\r\n");
+    printf("  ENV NAME=VAL  Set NAME to VAL\r\n");
+    printf("  ENV NAME +N   Add N to NAME\r\n");
+    printf("  ENV NAME -N   Subtract N from NAME\r\n");
+    printf("  ENV -D NAME   Delete NAME\r\n");
+    printf("  ENV -C        Clear all variables\r\n");
+    printf("  ENV -N        Show count\r\n");
+    printf("  ENV -I N=V    Set if not defined\r\n");
+    printf("  ENV -H        Show this help\r\n");
+    printf("\r\n");
+    printf("File: A:ALTAIR.ENV\r\n");
+    printf("Key: max 15, Value: max 110 chars\r\n");
+    return 0;
+}
 
 /* ------------------------------------------------------------
  * prntvar - Callback to print one variable
@@ -95,7 +207,10 @@ main(argc, argv)
 int argc;
 char *argv[];
 {
-    int rc, cnt;
+    int rc, cnt, i, j, k;
+    int cur, delta, newval;   /* For numeric operations */
+    char lkey[E_KEYSZ];   /* Local key buffer */
+    char lval[E_VALSZ];   /* Local val buffer */
     
     /* Initialize environment file */
     rc = e_init();
@@ -109,6 +224,61 @@ char *argv[];
         cnt = e_list(prntvar);
         if (cnt == 0)
             printf("(no variables set)\r\n");
+        return 0;
+    }
+    
+    /* Check for help flag */
+    if (argv[1][0] == '-' && 
+        (argv[1][1] == 'h' || argv[1][1] == 'H' ||
+         argv[1][1] == '?')) {
+        shwhelp();
+        return 0;
+    }
+    
+    /* Check for clear flag */
+    if (argv[1][0] == '-' && 
+        (argv[1][1] == 'c' || argv[1][1] == 'C')) {
+        rc = e_clear();
+        if (rc == E_OK)
+            printf("All variables cleared\r\n");
+        else
+            printf("Error clearing variables\r\n");
+        return 0;
+    }
+    
+    /* Check for count flag */
+    if (argv[1][0] == '-' && 
+        (argv[1][1] == 'n' || argv[1][1] == 'N')) {
+        cnt = e_count();
+        printf("%d variable(s) set\r\n", cnt);
+        return 0;
+    }
+    
+    /* Check for init flag (set if not exists) */
+    if (argv[1][0] == '-' && 
+        (argv[1][1] == 'i' || argv[1][1] == 'I')) {
+        if (argc < 3) {
+            printf("Usage: ENV -I NAME=VAL\r\n");
+            return 1;
+        }
+        
+        /* Parse NAME=VALUE */
+        if (!parsarg(argv[2], lkey, lval)) {
+            printf("Usage: ENV -I NAME=VAL\r\n");
+            return 1;
+        }
+        
+        /* Only set if not already defined */
+        if (e_exists(lkey)) {
+            printf("%s already defined\r\n", lkey);
+            return 0;
+        }
+        
+        rc = e_set(lkey, lval);
+        if (rc == E_OK)
+            printf("%s=%s\r\n", lkey, lval);
+        else
+            printf("Error setting %s\r\n", lkey);
         return 0;
     }
     
@@ -131,21 +301,64 @@ char *argv[];
         return 0;
     }
     
-    /* Parse argument for NAME=VALUE */
-    if (parsarg(argv[1], g_key, g_val)) {
-        /* Set variable */
-        rc = e_set(g_key, g_val);
+    /* Check for increment/decrement: ENV NAME +N or ENV NAME -N */
+    if (argc >= 3 && isnum(argv[2])) {
+        
+        /* Get current value */
+        rc = e_get(argv[1], lval);
+        if (rc == E_OK) {
+            /* Check if current value is numeric */
+            if (!isnum(lval)) {
+                printf("Error: %s is not numeric\r\n", argv[1]);
+                return 1;
+            }
+            cur = e_atoi(lval);
+        } else {
+            cur = 0;  /* Start from 0 if not exists */
+        }
+        
+        /* Apply delta */
+        delta = e_atoi(argv[2]);
+        newval = cur + delta;
+        
+        /* Convert back to string and save */
+        e_itoa(newval, lval);
+        rc = e_set(argv[1], lval);
+        
         if (rc == E_OK)
-            printf("%s=%s\r\n", g_key, g_val);
+            printf("%s=%s\r\n", argv[1], lval);
         else
-            printf("Error setting %s\r\n", g_key);
+            printf("Error setting %s\r\n", argv[1]);
+        return 0;
+    }
+    
+    /* Parse argument for NAME=VALUE */
+    if (parsarg(argv[1], lkey, lval)) {
+        /* Concatenate remaining args (for values with spaces) */
+        k = 0;
+        while (lval[k]) k++;  /* Find end of lval */
+        
+        for (i = 2; i < argc && k < E_VALSZ - 2; i++) {
+            lval[k++] = ' ';  /* Add space separator */
+            for (j = 0; argv[i][j] && k < E_VALSZ - 1; j++)
+                lval[k++] = argv[i][j];
+        }
+        lval[k] = 0;
+        
+        /* Set variable */
+        rc = e_set(lkey, lval);
+        
+        if (rc == E_OK)
+            printf("%s=%s\r\n", lkey, lval);
+        else
+            printf("Error setting %s\r\n", lkey);
         return 0;
     }
     
     /* Just NAME - show value */
-    rc = e_get(argv[1], g_val);
+    rc = e_get(argv[1], lval);
     if (rc == E_OK)
-        printf("%s=%s\r\n", argv[1], g_val);
+        printf("%s=%s\r\n", argv[1], lval);
     else
         printf("%s not found\r\n", argv[1]);
     
