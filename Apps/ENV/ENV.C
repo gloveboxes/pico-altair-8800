@@ -5,6 +5,8 @@
  *   ENV              - List all variables
  *   ENV NAME         - Show value of NAME
  *   ENV NAME=VALUE   - Set NAME to VALUE
+ *   ENV NAME=A+B     - Set NAME to A plus B (32-bit)
+ *   ENV NAME=A-B     - Set NAME to A minus B (32-bit)
  *   ENV NAME +N      - Add N to numeric NAME
  *   ENV NAME -N      - Subtract N from numeric NAME
  *   ENV -D NAME      - Delete NAME
@@ -37,13 +39,20 @@ int e_exists();
 char *atol();   /* char *atol(result, s) - ascii to long */
 char *ltoa();   /* char *ltoa(result, op1) - long to ascii */
 char *ladd();   /* char *ladd(result, op1, op2) - add */
+char *lsub();   /* char *lsub(result, op1, op2) - subtract */
 char *itol();   /* char *itol(result, n) - int to long */
+
+/* BDS C I/O entry points */
+int inp();     /* int inp(port) */
+outp();        /* void outp(port, val) */
 
 /* Forward declarations */
 int prntvar();
 int parsarg();
 int shwhelp();
 int isnum();
+int evlexpr();
+int getnow();
 
 /* ------------------------------------------------------------
  * isnum - Check if string is a number (with optional +/- prefix)
@@ -67,6 +76,150 @@ char *s;
 }
 
 /* ------------------------------------------------------------
+ * getnow - Get system uptime in seconds from port 41
+ * Returns length of string written to buf
+ * ------------------------------------------------------------ */
+int getnow(buf, size)
+char *buf;
+int size;
+{
+    int i;
+    outp(41, 1);  /* Trigger uptime output */
+    for (i = 0; i < size - 1; i++) {
+        buf[i] = inp(200);  /* Read from loader port */
+        if (buf[i] == 0)
+            break;
+    }
+    buf[i] = 0;
+    return i;
+}
+
+/* ------------------------------------------------------------
+ * isnow - Check if string is "NOW" (case insensitive)
+ * ------------------------------------------------------------ */
+int isnow(s)
+char *s;
+{
+    if ((s[0] == 'N' || s[0] == 'n') &&
+        (s[1] == 'O' || s[1] == 'o') &&
+        (s[2] == 'W' || s[2] == 'w') &&
+        s[3] == 0)
+        return 1;
+    return 0;
+}
+
+/* ------------------------------------------------------------
+ * evlexpr - Evaluate expression: VAR, VAR+VAR, VAR-VAR, or literal
+ * Returns 1 if expression evaluated, 0 if plain value
+ * Result stored in 'result' buffer as string
+ * ------------------------------------------------------------ */
+int evlexpr(expr, result)
+char *expr;
+char *result;
+{
+    int i, op, oppos;
+    char var1[E_KEYSZ], var2[E_KEYSZ];
+    char val1[E_VALSZ], val2[E_VALSZ];
+    char l1[4], l2[4], lres[4];
+    
+    /* Find operator (+/-) not at position 0 */
+    oppos = -1;
+    op = 0;
+    for (i = 1; expr[i]; i++) {
+        if (expr[i] == '+' || expr[i] == '-') {
+            oppos = i;
+            op = expr[i];
+            break;
+        }
+    }
+    
+    /* No operator found - check for simple variable reference */
+    if (oppos < 0) {
+        /* If it's a number, use as-is */
+        if (isnum(expr))
+            return 0;
+        
+        /* Check for NOW special variable */
+        if (isnow(expr)) {
+            getnow(result, E_VALSZ);
+            return 1;
+        }
+        
+        /* Try to look up as variable name */
+        if (e_get(expr, result) == E_OK)
+            return 1;  /* Copied variable value */
+        
+        /* Not a variable - use literal value as-is */
+        return 0;
+    }
+    
+    /* Extract first operand (before operator) */
+    for (i = 0; i < oppos && i < E_KEYSZ - 1; i++)
+        var1[i] = expr[i];
+    var1[i] = 0;
+    
+    /* Extract second operand (after operator) */
+    for (i = 0; expr[oppos + 1 + i] && i < E_KEYSZ - 1; i++)
+        var2[i] = expr[oppos + 1 + i];
+    var2[i] = 0;
+    
+    /* Get value for first operand */
+    if (isnum(var1)) {
+        /* It's a literal number */
+        for (i = 0; var1[i]; i++)
+            val1[i] = var1[i];
+        val1[i] = 0;
+    } else if (isnow(var1)) {
+        /* Special NOW variable */
+        getnow(val1, E_VALSZ);
+    } else {
+        /* Look up variable */
+        if (e_get(var1, val1) != E_OK) {
+            printf("Error: %s not found\r\n", var1);
+            return -1;
+        }
+        if (!isnum(val1)) {
+            printf("Error: %s not numeric\r\n", var1);
+            return -1;
+        }
+    }
+    
+    /* Get value for second operand */
+    if (isnum(var2)) {
+        /* It's a literal number */
+        for (i = 0; var2[i]; i++)
+            val2[i] = var2[i];
+        val2[i] = 0;
+    } else if (isnow(var2)) {
+        /* Special NOW variable */
+        getnow(val2, E_VALSZ);
+    } else {
+        /* Look up variable */
+        if (e_get(var2, val2) != E_OK) {
+            printf("Error: %s not found\r\n", var2);
+            return -1;
+        }
+        if (!isnum(val2)) {
+            printf("Error: %s not numeric\r\n", var2);
+            return -1;
+        }
+    }
+    
+    /* Convert to longs and compute */
+    atol(l1, val1);
+    atol(l2, val2);
+    
+    if (op == '+')
+        ladd(lres, l1, l2);
+    else
+        lsub(lres, l1, l2);
+    
+    /* Convert result to string */
+    ltoa(result, lres);
+    return 1;
+}
+
+/* ------------------------------------------------------------
  * shwhelp - Show usage help
  * ------------------------------------------------------------ */
 int shwhelp()
@@ -77,8 +230,12 @@ int shwhelp()
     printf("  ENV           List all variables\r\n");
     printf("  ENV NAME      Show value of NAME\r\n");
     printf("  ENV NAME=VAL  Set NAME to VAL\r\n");
+    printf("  ENV NAME=VAR  Copy VAR to NAME\r\n");
+    printf("  ENV NAME=A+B  Set NAME to A plus B\r\n");
+    printf("  ENV NAME=A-B  Set NAME to A minus B\r\n");
     printf("  ENV NAME +N   Add N to NAME\r\n");
     printf("  ENV NAME -N   Subtract N from NAME\r\n");
+    printf("  ENV NOW       Show system uptime\r\n");
     printf("  ENV -D NAME   Delete NAME\r\n");
     printf("  ENV -C        Clear all variables\r\n");
     printf("  ENV -N        Show count\r\n");
@@ -86,7 +243,7 @@ int shwhelp()
     printf("  ENV -H        Show this help\r\n");
     printf("\r\n");
     printf("File: A:ALTAIR.ENV\r\n");
-    printf("Key: max 15, Value: max 110 chars\r\n");
+    printf("32-bit math for expressions\r\n");
     return 0;
 }
 
@@ -296,13 +453,25 @@ char *argv[];
         }
         lval[k] = 0;
         
-        /* Set variable */
+        /* Try to evaluate as expression (VAR+VAR or VAR-VAR) */
+        rc = evlexpr(lval, lval);
+        if (rc < 0)
+            return 1;  /* Error message already printed */
+        
+        /* Set variable (rc=1 if expr, rc=0 if plain value) */
         rc = e_set(lkey, lval);
         
         if (rc == E_OK)
             printf("%s=%s\r\n", lkey, lval);
         else
             printf("Error setting %s\r\n", lkey);
+        return 0;
+    }
+    
+    /* Check for NOW special variable */
+    if (isnow(argv[1])) {
+        getnow(lval, E_VALSZ);
+        printf("NOW=%s\r\n", lval);
         return 0;
     }
     
