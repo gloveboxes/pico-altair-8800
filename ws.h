@@ -28,6 +28,10 @@ extern "C"
     void ws_poll_incoming(void);
     void ws_poll_outgoing(void);
     bool ws_has_active_clients(void);
+    
+    // Debug: get current connection tracking state
+    // Returns: active_count in lower 16 bits, closing_count in upper 16 bits
+    uint32_t ws_get_connection_state(void);
 
 #ifdef __cplusplus
 }

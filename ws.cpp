@@ -38,9 +38,22 @@ struct ws_connection_state_t
 static ws_context_t g_ws_context = {};
 static bool g_ws_initialized = false;
 static bool g_ws_running = false;
-static size_t g_ws_active_clients = 0;
 static std::unique_ptr<WebSocketServer> g_ws_server;
 static ws_connection_state_t g_ws_connections[WS_MAX_CLIENTS] = {};
+
+// Always derive active client count from ground truth (the array)
+static size_t get_active_client_count(void)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
+    {
+        if (g_ws_connections[i].active && !g_ws_connections[i].closing)
+        {
+            count++;
+        }
+    }
+    return count;
+}
 
 static ws_connection_state_t* find_connection(uint32_t conn_id)
 {
@@ -58,23 +71,37 @@ static ws_connection_state_t* allocate_connection(uint32_t conn_id)
 {
     for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
     {
-        if (!g_ws_connections[i].active)
+        // Skip active connections
+        if (g_ws_connections[i].active)
         {
-            g_ws_connections[i].conn_id = conn_id;
-            g_ws_connections[i].active = true;
-            g_ws_connections[i].closing = false;
-            g_ws_connections[i].pending_pings = 0;
-            g_ws_connections[i].missed_pongs = 0;
-            g_ws_connections[i].next_ping_deadline = make_timeout_time_ms(WS_PING_INTERVAL_MS);
-            return &g_ws_connections[i];
+            continue;
         }
+        
+        // Also check for stale "closing" connections that weren't properly cleaned up
+        // These should have been cleared by handle_close, but clean up just in case
+        if (g_ws_connections[i].closing)
+        {
+#ifdef ALTAIR_DEBUG
+            printf("WebSocket clearing stale closing slot %zu (was conn_id=%u)\n", 
+                   i, g_ws_connections[i].conn_id);
+#endif
+            g_ws_connections[i].closing = false;
+        }
+
+        g_ws_connections[i].conn_id = conn_id;
+        g_ws_connections[i].active = true;
+        g_ws_connections[i].closing = false;
+        g_ws_connections[i].pending_pings = 0;
+        g_ws_connections[i].missed_pongs = 0;
+        g_ws_connections[i].next_ping_deadline = make_timeout_time_ms(WS_PING_INTERVAL_MS);
+        return &g_ws_connections[i];
     }
     return nullptr;
 }
 
 static void send_ping_if_due(void)
 {
-    if (!g_ws_running || !g_ws_server || g_ws_active_clients == 0)
+    if (!g_ws_running || !g_ws_server || get_active_client_count() == 0)
     {
         return;
     }
@@ -151,9 +178,8 @@ void handle_connect(WebSocketServer& server, uint32_t conn_id)
         return;
     }
 
-    ++g_ws_active_clients;
 #ifdef ALTAIR_DEBUG
-    printf("WebSocket client connected (id=%u, total=%zu)\n", conn_id, g_ws_active_clients);
+    printf("WebSocket client connected (id=%u, total=%zu)\n", conn_id, get_active_client_count());
 #endif
 
     ws_context_t* ctx = static_cast<ws_context_t*>(server.getCallbackExtra());
@@ -167,21 +193,21 @@ void handle_close(WebSocketServer& server, uint32_t conn_id)
 {
     (void)server;
 
-    // Only decrement if this connection was tracked as active.
     ws_connection_state_t* conn = find_connection(conn_id);
     if (conn)
     {
         conn->active = false;
         conn->closing = false;
-
-        if (g_ws_active_clients > 0)
-        {
-            --g_ws_active_clients;
-        }
-    }
-
 #ifdef ALTAIR_DEBUG
-    printf("WebSocket client closed (id=%u, remaining=%zu)\n", conn_id, g_ws_active_clients);
+        printf("WebSocket client closed (id=%u, remaining=%zu)\n", conn_id, get_active_client_count());
+#endif
+    }
+#ifdef ALTAIR_DEBUG
+    else
+    {
+        // Connection not found - likely was rejected at max capacity or already closed
+        printf("WebSocket close for unknown conn_id=%u (remaining=%zu)\n", conn_id, get_active_client_count());
+    }
 #endif
 
     ws_context_t* ctx = static_cast<ws_context_t*>(server.getCallbackExtra());
@@ -284,7 +310,6 @@ extern "C"
             g_ws_server->setTcpNoDelay(true); // Disable Nagle's algorithm for low latency
         }
 
-        g_ws_active_clients = 0;
         if (!g_ws_server->startListening(WS_SERVER_PORT))
         {
 #ifdef ALTAIR_DEBUG
@@ -309,7 +334,7 @@ extern "C"
 
     bool ws_has_active_clients(void)
     {
-        return g_ws_active_clients > 0;
+        return get_active_client_count() > 0;
     }
 
     void ws_poll_incoming(void)
@@ -322,7 +347,7 @@ extern "C"
         // Always process messages even if no active clients (handles close race conditions)
         g_ws_server->popMessages();
 
-        if (g_ws_active_clients == 0)
+        if (get_active_client_count() == 0)
         {
             return;
         }
@@ -339,7 +364,7 @@ extern "C"
             return;
         }
 
-        if (g_ws_active_clients == 0 || !g_ws_context.callbacks.on_output)
+        if (get_active_client_count() == 0 || !g_ws_context.callbacks.on_output)
         {
             return;
         }
@@ -374,5 +399,26 @@ extern "C"
 #endif
             }
         }
+    }
+
+    uint32_t ws_get_connection_state(void)
+    {
+        uint16_t active_count = 0;
+        uint16_t closing_count = 0;
+        
+        for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
+        {
+            if (g_ws_connections[i].active)
+            {
+                active_count++;
+            }
+            if (g_ws_connections[i].closing)
+            {
+                closing_count++;
+            }
+        }
+        
+        // Return: active slots in bits 0-15, closing slots in bits 16-31
+        return ((uint32_t)closing_count << 16) | (uint32_t)active_count;
     }
 }
