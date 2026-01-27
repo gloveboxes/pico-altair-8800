@@ -172,55 +172,59 @@ void display_st7789_show_front_panel(uint16_t address, uint8_t data, uint16_t st
     color_t LED_ON = rgb332(255, 0, 0); // Bright red
     color_t LED_OFF = rgb332(40, 0, 0); // Dark red
 
-    // === ONLY update the LED rectangles (no clear, no labels!) ===
+    // === ONLY update LEDs that actually changed (bit-level change detection) ===
 
-    // STATUS LEDs (10 LEDs) - only update if changed
+    // STATUS LEDs (10 LEDs) - only update changed bits
     if (status != last_status)
     {
+        uint16_t changed = status ^ last_status;
         int x_status = 8;
         int y_status = 35;
-        // Status LEDs: 9..0 Match Labels
         for (int i = 9; i >= 0; i--)
         {
-            // Bit 9 (INTE) on Left
-            int bit = i;
-            bool led_state = (status >> bit) & 1;
-            st7789_async_fill_rect(x_status, y_status, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
+            if (changed & (1 << i))  // Only redraw if this bit changed
+            {
+                bool led_state = (status >> i) & 1;
+                st7789_async_fill_rect(x_status, y_status, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
+            }
             x_status += LED_SPACING_STATUS;
         }
         last_status = status;
         needs_update = true;
     }
 
-    // ADDRESS LEDs (16 LEDs) - only update if changed
+    // ADDRESS LEDs (16 LEDs) - only update changed bits
     if (address != last_address)
     {
+        uint16_t changed = address ^ last_address;
         int x_addr = 2;
         int y_addr = 100;
         for (int i = 15; i >= 0; i--)
         {
-            // Draw MSB (15) at Left, LSB (0) at Right
-            int bit = i;
-            bool led_state = (address >> bit) & 1;
-            st7789_async_fill_rect(x_addr, y_addr, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
+            if (changed & (1 << i))  // Only redraw if this bit changed
+            {
+                bool led_state = (address >> i) & 1;
+                st7789_async_fill_rect(x_addr, y_addr, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
+            }
             x_addr += LED_SPACING_ADDRESS;
         }
         last_address = address;
         needs_update = true;
     }
 
-    // DATA LEDs (8 LEDs) - only update if changed
+    // DATA LEDs (8 LEDs) - only update changed bits
     if (data != last_data)
     {
+        uint8_t changed = data ^ last_data;
         int x_data = 162;
         int y_data = 170;
-        // Data LEDs: 7..0 Match Labels
         for (int i = 7; i >= 0; i--)
         {
-            // Bit 7 (D7) on Left
-            int bit = i;
-            bool led_state = (data >> bit) & 1;
-            st7789_async_fill_rect(x_data, y_data, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
+            if (changed & (1 << i))  // Only redraw if this bit changed
+            {
+                bool led_state = (data >> i) & 1;
+                st7789_async_fill_rect(x_data, y_data, LED_SIZE, LED_SIZE, led_state ? LED_ON : LED_OFF);
+            }
             x_data += LED_SPACING_DATA;
         }
         last_data = data;

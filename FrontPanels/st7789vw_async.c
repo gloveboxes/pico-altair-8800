@@ -1,5 +1,6 @@
-/* Custom Async ST7789VW Driver for Waveshare 2" LCD
- * Simplified non-blocking implementation for LED display
+/* Custom Direct-Write ST7789VW Driver for Waveshare 2" LCD
+ * Framebuffer-less implementation with DMA acceleration
+ * Saves ~150KB RAM by using partial window updates with DMA transfers
  *
  * Pin configuration for Waveshare 2" LCD:
  * - DC: GPIO 8
@@ -41,16 +42,16 @@
 // SPI instance - Waveshare uses GPIO 10/11 which are SPI1
 #define SPI_INST spi1
 
-// Framebuffer (320x240 x 2 bytes RGB565)
-static uint16_t g_framebuffer[ST7789_ASYNC_WIDTH * ST7789_ASYNC_HEIGHT];
+// Small buffer for rectangle fills (max LED size 15x15 = 225 pixels = 450 bytes)
+#define RECT_BUFFER_SIZE 512
+static uint16_t g_rect_buffer[RECT_BUFFER_SIZE];
 
-// DMA channel
+// DMA channel for pixel data transfers
 static int g_dma_channel = -1;
 static volatile bool g_dma_busy = false;
 
 // Statistics
 static uint64_t g_update_count = 0;
-static uint64_t g_skip_count = 0;
 
 // Minimal 5x8 font for capital letters, numbers, and period
 static const uint8_t font_5x8[][5] = {
@@ -106,7 +107,7 @@ static void send_command(uint8_t cmd)
     gpio_put(PIN_CS, 1);
 }
 
-// Send data to display
+// Send data to display (blocking, for small transfers like commands)
 static void send_data(const uint8_t* data, size_t len)
 {
     gpio_put(PIN_DC, 1); // Data mode
@@ -115,9 +116,46 @@ static void send_data(const uint8_t* data, size_t len)
     gpio_put(PIN_CS, 1);
 }
 
+// Wait for any pending DMA transfer to complete
+static inline void wait_for_dma(void)
+{
+    while (g_dma_busy)
+    {
+        if (!dma_channel_is_busy(g_dma_channel))
+        {
+            // DMA done transferring to SPI FIFO, but wait for SPI to finish transmitting
+            while (spi_is_busy(SPI_INST))
+            {
+                tight_loop_contents();
+            }
+            g_dma_busy = false;
+            gpio_put(PIN_CS, 1); // Deassert CS when done
+        }
+    }
+}
+
+// Send pixel data using DMA (non-blocking start, but we wait before next operation)
+static void send_pixels_dma(const uint16_t* pixels, size_t num_pixels)
+{
+    // Wait for any previous DMA to complete
+    wait_for_dma();
+    
+    // Set up for data mode and assert CS
+    gpio_put(PIN_DC, 1);
+    gpio_put(PIN_CS, 0);
+    
+    // Start DMA transfer
+    g_dma_busy = true;
+    dma_channel_set_read_addr(g_dma_channel, pixels, false);
+    dma_channel_set_trans_count(g_dma_channel, num_pixels * 2, true); // * 2 for bytes
+}
+
 // Set display window for pixel writing
 static void set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
+    // Wait for any pending DMA before changing window
+    wait_for_dma();
+    
     uint8_t data[4];
 
     // Column address set
@@ -135,17 +173,6 @@ static void set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     data[2] = y1 >> 8;
     data[3] = y1 & 0xFF;
     send_data(data, 4);
-}
-
-// DMA completion IRQ handler
-static void dma_irq_handler(void)
-{
-    if (dma_channel_get_irq0_status(g_dma_channel))
-    {
-        dma_channel_acknowledge_irq0(g_dma_channel);
-        g_dma_busy = false;
-        gpio_put(PIN_CS, 1); // Deassert CS when done
-    }
 }
 
 bool st7789_async_init(void)
@@ -171,19 +198,12 @@ bool st7789_async_init(void)
     pwm_set_gpio_level(PIN_BL, 65535); // Full brightness
     pwm_set_enabled(slice, true);
 
-    // Claim DMA channel
+    // Claim and configure DMA channel for pixel data transfers
     g_dma_channel = dma_claim_unused_channel(true);
-
-    // Configure DMA for 8-bit transfers (RGB565 sent as bytes)
     dma_channel_config config = dma_channel_get_default_config(g_dma_channel);
     channel_config_set_transfer_data_size(&config, DMA_SIZE_8);
     channel_config_set_dreq(&config, spi_get_dreq(SPI_INST, true));
     dma_channel_configure(g_dma_channel, &config, &spi_get_hw(SPI_INST)->dr, NULL, 0, false);
-
-    // Set up DMA IRQ
-    dma_channel_set_irq0_enabled(g_dma_channel, true);
-    irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
-    irq_set_enabled(DMA_IRQ_0, true);
 
     // Hardware reset
     gpio_init(PIN_RST);
@@ -287,26 +307,14 @@ bool st7789_async_init(void)
     return true;
 }
 
-static void st7789_async_set_pixel(int x, int y, color_t color)
-{
-    if (x >= 0 && x < ST7789_ASYNC_WIDTH && y >= 0 && y < ST7789_ASYNC_HEIGHT)
-    {
-        g_framebuffer[y * ST7789_ASYNC_WIDTH + x] = color;
-    }
-}
-
-// Simple text rendering
+// Direct text rendering - writes each character directly to display
 void st7789_async_text(const char* str, int x, int y, color_t color)
 {
-    // Calculate string length
-    int len = 0;
-    while (str[len])
-        len++;
-
-    // Draw string forward (normal)
-    for (int i = 0; i < len; i++)
+    color_t bg_color = rgb565(0, 0, 0); // Black background
+    
+    while (*str)
     {
-        char c = str[i];
+        char c = *str++;
         int glyph_idx = -1;
 
         // Map character to glyph index
@@ -332,23 +340,115 @@ void st7789_async_text(const char* str, int x, int y, color_t color)
 
         if (glyph_idx >= 0 && glyph_idx < 41)
         {
-            // Draw 5x8 character (normal)
-            for (int col = 0; col < 5; col++)
+            // Set window for this character (6x8 including spacing)
+            set_window(x, y, x + 5, y + 7);
+            send_command(ST7789_RAMWR);
+            
+            // Build character pixels into buffer (6 cols x 8 rows = 48 pixels)
+            uint16_t char_buf[48];
+            int idx = 0;
+            for (int row = 0; row < 8; row++)
             {
-                uint8_t column_data = font_5x8[glyph_idx][col]; // Normal
-                for (int row = 0; row < 8; row++)
+                for (int col = 0; col < 6; col++)
                 {
-                    if (column_data & (1 << row))
+                    if (col < 5)
                     {
-                        st7789_async_set_pixel(x + col, y + row, color);
+                        uint8_t column_data = font_5x8[glyph_idx][col];
+                        char_buf[idx++] = (column_data & (1 << row)) ? color : bg_color;
+                    }
+                    else
+                    {
+                        char_buf[idx++] = bg_color; // Spacing column
                     }
                 }
             }
-            x += 6; // 5 pixels + 1 space
+            send_data((uint8_t*)char_buf, sizeof(char_buf));
+            x += 6;
         }
     }
 }
 
+// Draw a row of LEDs efficiently with one window setup and DMA transfers per scanline
+// This draws the entire row (LEDs + gaps) in a single window operation
+void st7789_async_draw_led_row(uint32_t bits, int num_leds, int x_start, int y,
+                               int led_size, int spacing, color_t on_color, color_t off_color)
+{
+    // Calculate total width of the row
+    int total_width = (num_leds - 1) * spacing + led_size;
+    
+    // Clamp to screen bounds
+    if (x_start < 0 || y < 0 || x_start + total_width > ST7789_ASYNC_WIDTH || y + led_size > ST7789_ASYNC_HEIGHT)
+        return;
+    if (total_width > RECT_BUFFER_SIZE)
+        return;  // Row too wide for buffer
+    
+    // Set window for entire row - one window setup for all scanlines
+    set_window(x_start, y, x_start + total_width - 1, y + led_size - 1);
+    send_command(ST7789_RAMWR);
+    
+    // Background color (between LEDs)
+    color_t bg_color = rgb565(0, 0, 0);
+    
+    // Build one scanline pattern (same for all rows since LEDs are square)
+    int buf_idx = 0;
+    for (int led = num_leds - 1; led >= 0; led--)  // MSB on left
+    {
+        // Determine LED color based on bit pattern
+        color_t led_color = (bits >> led) & 1 ? on_color : off_color;
+        
+        // Draw LED pixels
+        for (int px = 0; px < led_size; px++)
+        {
+            g_rect_buffer[buf_idx++] = led_color;
+        }
+        
+        // Draw gap pixels (except after last LED)
+        if (led > 0)
+        {
+            int gap = spacing - led_size;
+            for (int px = 0; px < gap; px++)
+            {
+                g_rect_buffer[buf_idx++] = bg_color;
+            }
+        }
+    }
+    
+    int scanline_pixels = buf_idx;
+    
+    // Send the same scanline pattern for each row of the LED height
+    // Set up for data mode and assert CS once
+    gpio_put(PIN_DC, 1);
+    gpio_put(PIN_CS, 0);
+    
+    for (int row = 0; row < led_size; row++)
+    {
+        // Wait for any previous DMA to complete (but don't deassert CS)
+        while (dma_channel_is_busy(g_dma_channel))
+        {
+            tight_loop_contents();
+        }
+        
+        // Start DMA transfer for this scanline
+        dma_channel_set_read_addr(g_dma_channel, g_rect_buffer, false);
+        dma_channel_set_trans_count(g_dma_channel, scanline_pixels * 2, true);
+    }
+    
+    // Wait for final DMA and SPI to complete
+    while (dma_channel_is_busy(g_dma_channel))
+    {
+        tight_loop_contents();
+    }
+    while (spi_is_busy(SPI_INST))
+    {
+        tight_loop_contents();
+    }
+    
+    gpio_put(PIN_CS, 1);
+    g_dma_busy = false;
+    g_update_count++;
+}
+
+// Direct fill rectangle - writes directly to display using partial window with DMA
 void st7789_async_fill_rect(int x, int y, int w, int h, color_t color)
 {
     // Clamp to screen bounds
@@ -369,64 +469,85 @@ void st7789_async_fill_rect(int x, int y, int w, int h, color_t color)
     if (w <= 0 || h <= 0)
         return;
 
-    // Direct framebuffer access (much faster than set_pixel per pixel)
-    for (int dy = 0; dy < h; dy++)
-    {
-        uint16_t* row = &g_framebuffer[(y + dy) * ST7789_ASYNC_WIDTH + x];
-        for (int dx = 0; dx < w; dx++)
-        {
-            row[dx] = color;
-        }
-    }
-}
-
-void st7789_async_clear(color_t color)
-{
-    for (int i = 0; i < ST7789_ASYNC_WIDTH * ST7789_ASYNC_HEIGHT; i++)
-    {
-        g_framebuffer[i] = color;
-    }
-}
-
-bool st7789_async_update(void)
-{
-    // Check if DMA is still busy
-    if (g_dma_busy)
-    {
-        g_skip_count++;
-        return false;
-    }
-
-    // Set window to full screen
-    set_window(0, 0, ST7789_ASYNC_WIDTH - 1, ST7789_ASYNC_HEIGHT - 1);
-
-    // Start RAM write
+    // Set window for this rectangle
+    set_window(x, y, x + w - 1, y + h - 1);
     send_command(ST7789_RAMWR);
 
-    // Set up for data mode and assert CS
-    gpio_put(PIN_DC, 1);
-    gpio_put(PIN_CS, 0);
+    int total_pixels = w * h;
+    
+    // Fill buffer with color
+    int buf_pixels = (total_pixels < RECT_BUFFER_SIZE) ? total_pixels : RECT_BUFFER_SIZE;
+    for (int i = 0; i < buf_pixels; i++)
+    {
+        g_rect_buffer[i] = color;
+    }
 
-    // Start DMA transfer (non-blocking!) - 2x size for 16-bit pixels as bytes
-    g_dma_busy = true;
-    dma_channel_set_read_addr(g_dma_channel, g_framebuffer, false);
-    dma_channel_set_trans_count(g_dma_channel, sizeof(g_framebuffer), true);
-
+    // Send data using DMA in chunks
+    int pixels_sent = 0;
+    while (pixels_sent < total_pixels)
+    {
+        int chunk = total_pixels - pixels_sent;
+        if (chunk > buf_pixels)
+            chunk = buf_pixels;
+        
+        // Use DMA for pixel data transfer
+        send_pixels_dma(g_rect_buffer, chunk);
+        pixels_sent += chunk;
+    }
+    
     g_update_count++;
+}
+
+// Clear entire screen - direct write with DMA
+void st7789_async_clear(color_t color)
+{
+    // Set window to full screen
+    set_window(0, 0, ST7789_ASYNC_WIDTH - 1, ST7789_ASYNC_HEIGHT - 1);
+    send_command(ST7789_RAMWR);
+
+    // Fill buffer with color
+    for (int i = 0; i < RECT_BUFFER_SIZE; i++)
+    {
+        g_rect_buffer[i] = color;
+    }
+
+    // Send full screen worth of data (320 * 240 = 76800 pixels) using DMA
+    int total_pixels = ST7789_ASYNC_WIDTH * ST7789_ASYNC_HEIGHT;
+    int pixels_sent = 0;
+    while (pixels_sent < total_pixels)
+    {
+        int chunk = total_pixels - pixels_sent;
+        if (chunk > RECT_BUFFER_SIZE)
+            chunk = RECT_BUFFER_SIZE;
+        send_pixels_dma(g_rect_buffer, chunk);
+        pixels_sent += chunk;
+    }
+    
+    // Ensure final DMA completes
+    wait_for_dma();
+}
+
+// No-op for compatibility - direct writes don't need explicit update
+bool st7789_async_update(void)
+{
     return true;
 }
 
+// Check if DMA transfer is complete
 bool st7789_async_is_ready(void)
 {
+    if (g_dma_busy && !dma_channel_is_busy(g_dma_channel))
+    {
+        g_dma_busy = false;
+        gpio_put(PIN_CS, 1);
+    }
     return !g_dma_busy;
 }
 
+// Wait for any pending DMA transfer to complete
 void st7789_async_wait(void)
 {
-    while (g_dma_busy)
-    {
-        tight_loop_contents();
-    }
+    wait_for_dma();
 }
 
 void st7789_async_get_stats(uint64_t* updates, uint64_t* skipped)
@@ -434,5 +555,5 @@ void st7789_async_get_stats(uint64_t* updates, uint64_t* skipped)
     if (updates)
         *updates = g_update_count;
     if (skipped)
-        *skipped = g_skip_count;
+        *skipped = 0; // No skipping with direct writes
 }

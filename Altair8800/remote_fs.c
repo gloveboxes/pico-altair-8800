@@ -24,11 +24,12 @@
 
 // Cache configuration - defined as number of tracks, actual bytes calculated from entry size
 #if defined(PICO_RP2040)
-// Pico W has 264KB RAM - cache 12 tracks
+// Pico W has 264KB RAM - cache 12 tracks (~53KB)
 #define RFS_CACHE_NUM_TRACKS 12
 #else
-// RP2350 (Pico 2 W) has 520KB RAM - cache 33 tracks
-#define RFS_CACHE_NUM_TRACKS 33
+// RP2350 (Pico 2 W) has 520KB RAM - cache 64 tracks (~280KB)
+// Framebuffer-less display driver freed up ~150KB for additional cache
+#define RFS_CACHE_NUM_TRACKS 64
 #endif
 
 // Queue sizes
