@@ -1,3 +1,13 @@
+/**
+ * @file websocket_console.h
+ * @brief WebSocket console for Altair 8800 terminal I/O
+ *
+ * Provides cross-core communication between the WebSocket server (Core 1)
+ * and the Altair emulator (Core 0) using Pico SDK queues.
+ * Single-client model: only one WebSocket client at a time.
+ * New connections automatically kick existing clients.
+ */
+
 #pragma once
 
 #include <stdbool.h>

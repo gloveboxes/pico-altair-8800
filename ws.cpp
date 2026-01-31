@@ -1,3 +1,11 @@
+/**
+ * @file ws.cpp
+ * @brief WebSocket server wrapper for Pico using pico-ws-server
+ *
+ * Single-client model: Only one WebSocket client at a time. New connections
+ * kick the existing client, which handles browser refresh gracefully.
+ */
+
 #include "ws.h"
 
 #include "pico/time.h"
@@ -10,176 +18,98 @@
 namespace
 {
 static constexpr uint16_t WS_SERVER_PORT = 8088;
-static constexpr uint32_t WS_MAX_CLIENTS = 3;
 // The pico-ws-server `max_connections` limit counts *all* TCP connections (including
-// non-upgraded HTTP connections used to serve the UI). Keep this higher than
-// WS_MAX_CLIENTS to avoid RSTs during the WebSocket handshake when a browser
-// holds an HTTP keep-alive connection open.
+// non-upgraded HTTP connections used to serve the UI). Keep this higher to avoid
+// RSTs during the WebSocket handshake when a browser holds an HTTP keep-alive connection open.
 static constexpr uint32_t WS_SERVER_MAX_CONNECTIONS = 8;
 static constexpr size_t WS_FRAME_PAYLOAD = 256;
 static constexpr uint32_t WS_PING_INTERVAL_MS = 10000; // 10s
-static constexpr uint8_t WS_MAX_MISSED_PONGS = 3;      // 30s total timeout
+static constexpr uint8_t WS_MAX_PING_FAILURES = 3;     // 30s total timeout
 
 struct ws_context_t
 {
     ws_callbacks_t callbacks;
 };
 
-struct ws_connection_state_t
-{
-    uint32_t conn_id;
-    absolute_time_t next_ping_deadline;
-    uint8_t pending_pings;
-    uint8_t missed_pongs;
-    bool active;
-    bool closing;
-};
-
 static ws_context_t g_ws_context = {};
 static bool g_ws_initialized = false;
 static bool g_ws_running = false;
 static std::unique_ptr<WebSocketServer> g_ws_server;
-static ws_connection_state_t g_ws_connections[WS_MAX_CLIENTS] = {};
 
-// Always derive active client count from ground truth (the array)
-static size_t get_active_client_count(void)
-{
-    size_t count = 0;
-    for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
-    {
-        if (g_ws_connections[i].active && !g_ws_connections[i].closing)
-        {
-            count++;
-        }
-    }
-    return count;
-}
-
-static ws_connection_state_t* find_connection(uint32_t conn_id)
-{
-    for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
-    {
-        if (g_ws_connections[i].active && g_ws_connections[i].conn_id == conn_id)
-        {
-            return &g_ws_connections[i];
-        }
-    }
-    return nullptr;
-}
-
-static ws_connection_state_t* allocate_connection(uint32_t conn_id)
-{
-    for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
-    {
-        // Skip active connections
-        if (g_ws_connections[i].active)
-        {
-            continue;
-        }
-        
-        // Also check for stale "closing" connections that weren't properly cleaned up
-        // These should have been cleared by handle_close, but clean up just in case
-        if (g_ws_connections[i].closing)
-        {
-#ifdef ALTAIR_DEBUG
-            printf("WebSocket clearing stale closing slot %zu (was conn_id=%u)\n", 
-                   i, g_ws_connections[i].conn_id);
-#endif
-            g_ws_connections[i].closing = false;
-        }
-
-        g_ws_connections[i].conn_id = conn_id;
-        g_ws_connections[i].active = true;
-        g_ws_connections[i].closing = false;
-        g_ws_connections[i].pending_pings = 0;
-        g_ws_connections[i].missed_pongs = 0;
-        g_ws_connections[i].next_ping_deadline = make_timeout_time_ms(WS_PING_INTERVAL_MS);
-        return &g_ws_connections[i];
-    }
-    return nullptr;
-}
+// Single WebSocket client connection (-1 = no client)
+static volatile int32_t g_client_conn_id = -1;
+static absolute_time_t g_next_ping_deadline;
+static uint8_t g_ping_failures = 0;
 
 static void send_ping_if_due(void)
 {
-    if (!g_ws_running || !g_ws_server || get_active_client_count() == 0)
+    if (!g_ws_running || !g_ws_server || g_client_conn_id < 0)
     {
         return;
     }
 
     absolute_time_t now = get_absolute_time();
 
-    // Check each active connection
-    for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
+    // Check if it's time to send a ping
+    if (absolute_time_diff_us(now, g_next_ping_deadline) > 0)
     {
-        ws_connection_state_t* conn = &g_ws_connections[i];
-        if (!conn->active || conn->closing)
-        {
-            continue;
-        }
-
-        // Check if it's time to send a ping for this connection
-        if (absolute_time_diff_us(now, conn->next_ping_deadline) > 0)
-        {
-            continue; // Not time yet
-        }
-
-        // Check for missed pongs
-        if (conn->pending_pings > 0)
-        {
-            ++conn->missed_pongs;
-        }
-
-        // Send ping
-        bool ping_sent = false;
-        if (conn->missed_pongs <= WS_MAX_MISSED_PONGS)
-        {
-            ping_sent = g_ws_server->sendPing(conn->conn_id, nullptr, 0);
-            if (ping_sent)
-            {
-                ++conn->pending_pings;
-#ifdef ALTAIR_DEBUG
-                printf("WebSocket sent PING to %u (pending=%u, missed=%u)\n", conn->conn_id, conn->pending_pings,
-                       conn->missed_pongs);
-#endif
-            }
-            else
-            {
-                ++conn->missed_pongs;
-#ifdef ALTAIR_DEBUG
-                printf("WebSocket PING send failed to %u (missed=%u)\n", conn->conn_id, conn->missed_pongs);
-#endif
-            }
-        }
-
-        // Close if too many missed pongs
-        if (conn->missed_pongs > WS_MAX_MISSED_PONGS)
-        {
-#ifdef ALTAIR_DEBUG
-            printf("WebSocket closing connection %u after %u missed pongs\n", conn->conn_id, conn->missed_pongs);
-#endif
-            g_ws_server->close(conn->conn_id);
-            conn->closing = true;
-            continue;
-        }
-
-        conn->next_ping_deadline = delayed_by_ms(now, WS_PING_INTERVAL_MS);
+        return; // Not time yet
     }
+
+    // Send ping
+    bool ping_sent = g_ws_server->sendPing(static_cast<uint32_t>(g_client_conn_id), nullptr, 0);
+    if (ping_sent)
+    {
+        g_ping_failures = 0;
+#ifdef ALTAIR_DEBUG
+        printf("WebSocket sent PING to %d\n", g_client_conn_id);
+#endif
+    }
+    else
+    {
+        ++g_ping_failures;
+#ifdef ALTAIR_DEBUG
+        printf("WebSocket PING send failed (failures=%u)\n", g_ping_failures);
+#endif
+    }
+
+    // Close if too many ping failures (connection is dead)
+    if (g_ping_failures >= WS_MAX_PING_FAILURES)
+    {
+#ifdef ALTAIR_DEBUG
+        printf("WebSocket closing connection %d after %u ping failures\n", g_client_conn_id, g_ping_failures);
+#endif
+        int32_t old_id = g_client_conn_id;
+        g_client_conn_id = -1; // Clear before triggering close
+        g_ws_server->close(static_cast<uint32_t>(old_id));
+        g_ping_failures = 0;
+        return;
+    }
+
+    g_next_ping_deadline = delayed_by_ms(now, WS_PING_INTERVAL_MS);
 }
 
 void handle_connect(WebSocketServer& server, uint32_t conn_id)
 {
-    ws_connection_state_t* conn = allocate_connection(conn_id);
-    if (!conn)
+    int32_t old_id = g_client_conn_id;
+
+    // Kick existing client if any (new connection takes over)
+    if (old_id >= 0 && static_cast<uint32_t>(old_id) != conn_id)
     {
 #ifdef ALTAIR_DEBUG
-        printf("WebSocket max connections reached, rejecting %u\n", conn_id);
+        printf("WebSocket kicking existing client %d for new client %u\n", old_id, conn_id);
 #endif
-        server.close(conn_id);
-        return;
+        g_client_conn_id = -1; // Clear before triggering close
+        server.close(static_cast<uint32_t>(old_id));
     }
 
+    // Accept new client
+    g_client_conn_id = static_cast<int32_t>(conn_id);
+    g_ping_failures = 0;
+    g_next_ping_deadline = make_timeout_time_ms(WS_PING_INTERVAL_MS);
+
 #ifdef ALTAIR_DEBUG
-    printf("WebSocket client connected (id=%u, total=%zu)\n", conn_id, get_active_client_count());
+    printf("WebSocket client connected (id=%u)\n", conn_id);
 #endif
 
     ws_context_t* ctx = static_cast<ws_context_t*>(server.getCallbackExtra());
@@ -193,32 +123,38 @@ void handle_close(WebSocketServer& server, uint32_t conn_id)
 {
     (void)server;
 
-    ws_connection_state_t* conn = find_connection(conn_id);
-    if (conn)
+    // Only notify if this was our active client
+    if (g_client_conn_id >= 0 && static_cast<uint32_t>(g_client_conn_id) == conn_id)
     {
-        conn->active = false;
-        conn->closing = false;
+        g_client_conn_id = -1;
+        g_ping_failures = 0;
 #ifdef ALTAIR_DEBUG
-        printf("WebSocket client closed (id=%u, remaining=%zu)\n", conn_id, get_active_client_count());
+        printf("WebSocket client disconnected (id=%u)\n", conn_id);
 #endif
+
+        ws_context_t* ctx = static_cast<ws_context_t*>(server.getCallbackExtra());
+        if (ctx && ctx->callbacks.on_client_disconnected)
+        {
+            ctx->callbacks.on_client_disconnected(ctx->callbacks.user_data);
+        }
     }
 #ifdef ALTAIR_DEBUG
     else
     {
-        // Connection not found - likely was rejected at max capacity or already closed
-        printf("WebSocket close for unknown conn_id=%u (remaining=%zu)\n", conn_id, get_active_client_count());
+        // Close for unknown/already-kicked connection
+        printf("WebSocket close for non-active conn_id=%u (active=%d)\n", conn_id, g_client_conn_id);
     }
 #endif
-
-    ws_context_t* ctx = static_cast<ws_context_t*>(server.getCallbackExtra());
-    if (ctx && ctx->callbacks.on_client_disconnected)
-    {
-        ctx->callbacks.on_client_disconnected(ctx->callbacks.user_data);
-    }
 }
 
 void handle_message(WebSocketServer& server, uint32_t conn_id, const void* data, size_t len)
 {
+    // Ignore messages from non-active clients
+    if (g_client_conn_id < 0 || static_cast<uint32_t>(g_client_conn_id) != conn_id)
+    {
+        return;
+    }
+
     ws_context_t* ctx = static_cast<ws_context_t*>(server.getCallbackExtra());
     if (!ctx)
     {
@@ -233,11 +169,7 @@ void handle_message(WebSocketServer& server, uint32_t conn_id, const void* data,
 
     if (!keep_open)
     {
-        ws_connection_state_t* conn = find_connection(conn_id);
-        if (conn)
-        {
-            conn->closing = true;
-        }
+        g_client_conn_id = -1; // Clear before triggering close
         server.close(conn_id);
     }
 }
@@ -248,20 +180,14 @@ void handle_pong(WebSocketServer& server, uint32_t conn_id, const void* data, si
     (void)data;
     (void)len;
 
-    ws_connection_state_t* conn = find_connection(conn_id);
-    if (!conn)
+    // Only process pong from active client
+    if (g_client_conn_id < 0 || static_cast<uint32_t>(g_client_conn_id) != conn_id)
     {
         return;
     }
 
-    if (conn->closing)
-    {
-        return;
-    }
-
-    conn->pending_pings = 0;
-    conn->missed_pongs = 0;
-    conn->next_ping_deadline = make_timeout_time_ms(WS_PING_INTERVAL_MS);
+    g_ping_failures = 0;
+    g_next_ping_deadline = make_timeout_time_ms(WS_PING_INTERVAL_MS);
 #ifdef ALTAIR_DEBUG
     printf("WebSocket received PONG from %u\n", conn_id);
 #endif
@@ -334,7 +260,7 @@ extern "C"
 
     bool ws_has_active_clients(void)
     {
-        return get_active_client_count() > 0;
+        return g_client_conn_id >= 0;
     }
 
     void ws_poll_incoming(void)
@@ -344,16 +270,15 @@ extern "C"
             return;
         }
 
-        // Always process messages even if no active clients (handles close race conditions)
+        // Always process messages (handles close race conditions)
         g_ws_server->popMessages();
 
-        if (get_active_client_count() == 0)
+        if (g_client_conn_id < 0)
         {
             return;
         }
 
-        // Heartbeat: check timers frequently (called every poll loop), so each client
-        // pings relative to its own connect time rather than bunching on ws_poll_outgoing cadence.
+        // Heartbeat: check timer for pings
         send_ping_if_due();
     }
 
@@ -364,7 +289,7 @@ extern "C"
             return;
         }
 
-        if (get_active_client_count() == 0 || !g_ws_context.callbacks.on_output)
+        if (g_client_conn_id < 0 || !g_ws_context.callbacks.on_output)
         {
             return;
         }
@@ -378,47 +303,22 @@ extern "C"
             return;
         }
 
-        // Send to each active client individually (best-effort: don't block on slow clients)
-        for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
-        {
-            ws_connection_state_t* conn = &g_ws_connections[i];
-            if (!conn->active || conn->closing)
-            {
-                continue;
-            }
 #ifdef ALTAIR_DEBUG
-            printf("WebSocket sending %zu bytes to %u\n", payload_len, conn->conn_id);
+        printf("WebSocket sending %zu bytes to %d\n", payload_len, g_client_conn_id);
 #endif
 
-            if (!g_ws_server->sendMessage(conn->conn_id, payload, payload_len))
-            {
+        if (!g_ws_server->sendMessage(static_cast<uint32_t>(g_client_conn_id), payload, payload_len))
+        {
 #ifdef ALTAIR_DEBUG
-                // This specific client's TCP send buffer is full - they miss this frame
-                // (expected under load; real-time data, no backpressure)
-                printf("WebSocket send failed, dropping %zu bytes\n", payload_len);
+            // TCP send buffer is full - drop this frame (expected under load)
+            printf("WebSocket send failed, dropping %zu bytes\n", payload_len);
 #endif
-            }
         }
     }
 
     uint32_t ws_get_connection_state(void)
     {
-        uint16_t active_count = 0;
-        uint16_t closing_count = 0;
-        
-        for (size_t i = 0; i < WS_MAX_CLIENTS; ++i)
-        {
-            if (g_ws_connections[i].active)
-            {
-                active_count++;
-            }
-            if (g_ws_connections[i].closing)
-            {
-                closing_count++;
-            }
-        }
-        
-        // Return: active slots in bits 0-15, closing slots in bits 16-31
-        return ((uint32_t)closing_count << 16) | (uint32_t)active_count;
+        // Return: 1 if connected, 0 if not (simplified from multi-client version)
+        return (g_client_conn_id >= 0) ? 1 : 0;
     }
 }

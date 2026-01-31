@@ -4,6 +4,7 @@ tests/
 .cache/
 context/
 RemoteFS/clients
+reference/
 
 # CMake
 CMakeLists.txt.user

@@ -1,3 +1,12 @@
+/**
+ * @file ws.h
+ * @brief WebSocket server for Altair 8800 terminal
+ *
+ * Provides WebSocket support using pico-ws-server library.
+ * Single-client model: Only one WebSocket client supported at a time.
+ * New connections automatically kick existing clients.
+ */
+
 #pragma once
 
 #include <stdbool.h>
@@ -29,8 +38,7 @@ extern "C"
     void ws_poll_outgoing(void);
     bool ws_has_active_clients(void);
     
-    // Debug: get current connection tracking state
-    // Returns: active_count in lower 16 bits, closing_count in upper 16 bits
+    // Debug: get current connection state (1 if connected, 0 if not)
     uint32_t ws_get_connection_state(void);
 
 #ifdef __cplusplus

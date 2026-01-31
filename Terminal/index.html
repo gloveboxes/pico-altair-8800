@@ -307,6 +307,7 @@
         keyHandler: null,
         cleanupInterval: null,
         reconnectTimer: null,
+        connectTimeout: null,
         userInitiatedDisconnect: false,
         inputBuffer: [],
         inputTimer: null,
@@ -326,7 +327,8 @@
         DEFAULT_THEME: 'dark',
         MAX_SCROLLBACK_LINES: 1000,
         BUFFER_CLEANUP_INTERVAL: 300000, // 5 minutes
-        RECONNECT_DELAY: 2000
+        RECONNECT_DELAY: 2000,
+        CONNECTION_TIMEOUT: 5000  // 5 second connection timeout
       };
 
       // DOM element cache
@@ -473,10 +475,13 @@
       function updateReconnectButton() {
         if (!elements.reconnectBtn) return;
 
-        const connected = state.connected && state.ws && state.ws.readyState === WebSocket.OPEN;
-        elements.reconnectBtn.disabled = false;
+        const isOpen = state.connected && state.ws && state.ws.readyState === WebSocket.OPEN;
+        const isConnecting = state.ws && state.ws.readyState === WebSocket.CONNECTING;
+        
+        elements.reconnectBtn.disabled = isConnecting;  // Disable while connecting
+        
         let hostText = "localhost";
-        if (connected && state.ws && state.ws.url) {
+        if (state.ws && state.ws.url) {
           try {
             const url = new URL(state.ws.url);
             hostText = url.hostname;
@@ -488,12 +493,19 @@
             hostText = wsUrl.split('://')[1].split(':')[0];
           } catch (e) { }
         }
-        elements.reconnectBtn.textContent = connected ? `Disconnect from ${hostText}` : `Connect to ${hostText}`;
+        
+        if (isConnecting) {
+          elements.reconnectBtn.textContent = `Connecting to ${hostText}...`;
+        } else if (isOpen) {
+          elements.reconnectBtn.textContent = `Disconnect from ${hostText}`;
+        } else {
+          elements.reconnectBtn.textContent = `Connect to ${hostText}`;
+        }
 
         // Disable/enable control buttons based on connection state
-        if (elements.sendEscBtn) elements.sendEscBtn.disabled = !connected;
-        if (elements.sendCtrlCBtn) elements.sendCtrlCBtn.disabled = !connected;
-        if (elements.monitorBtn) elements.monitorBtn.disabled = !connected;
+        if (elements.sendEscBtn) elements.sendEscBtn.disabled = !isOpen;
+        if (elements.sendCtrlCBtn) elements.sendCtrlCBtn.disabled = !isOpen;
+        if (elements.monitorBtn) elements.monitorBtn.disabled = !isOpen;
       }
       // Add reconnect button click handler
       function setupReconnectButton() {
@@ -510,6 +522,7 @@
             state.reconnectAttempts = 0;
             state.userInitiatedDisconnect = false;
             attemptConnection();
+            updateReconnectButton();  // Update button immediately to show "Connecting..."
           }
         };
       }
@@ -694,18 +707,20 @@
           const urlParams = new URLSearchParams(window.location.search);
           const hostAddress = urlParams.get('altair');
 
-          // Validate and sanitize host address
+          // Use same host as page, or override with ?altair= parameter
           const altairAddress = hostAddress
             ? sanitizeHostAddress(hostAddress)
             : window.location.hostname || 'localhost';
 
-          // Fixed WebSocket port for Altair service
-          const port = '8088';
+          // Use same port as page (empty string for port 80)
+          const port = window.location.port || '80';
+          const portSuffix = (port === '80' || port === '') ? '' : `:${port}`;
 
-          return `ws://${altairAddress}:${port}`;
+          // Pico WebSocket server expects root path, not /ws
+          return `ws://${altairAddress}${portSuffix}/`;
         } catch (error) {
           console.error("Failed to construct WebSocket URL:", error);
-          return 'ws://localhost:8088';
+          return 'ws://localhost/';
         }
       }
 
@@ -727,8 +742,9 @@
        * Attempt WebSocket connection with retry logic
        */
       function attemptConnection() {
-        // Cancel any pending reconnection attempts
+        // Cancel any pending reconnection attempts and timeouts
         cancelReconnect();
+        cancelConnectTimeout();
 
         // Close existing connection if any
         if (state.ws) {
@@ -747,35 +763,70 @@
           state.ws = new WebSocket(wsUrl);
           state.ws.binaryType = "arraybuffer";
           setupWebSocketEventHandlers(altairAddress);
+          
+          // Set connection timeout - if not connected within timeout, abort
+          state.connectTimeout = setTimeout(() => {
+            if (state.ws && state.ws.readyState === WebSocket.CONNECTING) {
+              console.log("Connection timeout - aborting");
+              state.ws.close();
+              state.ws = null;
+              state.connected = false;
+              showMessage('Connection timeout', true);
+              updateReconnectButton();
+              scheduleReconnect();
+            }
+          }, CONFIG.CONNECTION_TIMEOUT);
+          
         } catch (error) {
           console.error("Failed to create WebSocket:", error);
           showError("Failed to create connection");
           state.connected = false;
+          updateReconnectButton();
           scheduleReconnect();
         }
-      }      /**
+      }
+
+      /**
+       * Cancel connection timeout
+       */
+      function cancelConnectTimeout() {
+        if (state.connectTimeout) {
+          clearTimeout(state.connectTimeout);
+          state.connectTimeout = null;
+        }
+      }
+
+      /**
        * Set up WebSocket event handlers
        */
       function setupWebSocketEventHandlers(altairAddress) {
         if (!state.ws) return;
 
+        // Capture reference to THIS WebSocket instance to prevent race conditions
+        // When a new connection is created, old WebSocket events should be ignored
+        const thisWs = state.ws;
+
         state.ws.onopen = () => {
+          // Ignore if this is not the current WebSocket
+          if (state.ws !== thisWs) {
+            console.log("Ignoring onopen from old WebSocket");
+            return;
+          }
+          cancelConnectTimeout();  // Clear connection timeout on success
           console.log("WebSocket connected");
           state.connected = true;
-          // Only reset reconnect attempts after successful connection
-          // This prevents rapid reconnection loops
-          setTimeout(() => {
-            if (state.connected && state.ws && state.ws.readyState === WebSocket.OPEN) {
-              state.reconnectAttempts = 0;
-            }
-          }, 5000);
+          state.reconnectAttempts = 0;  // Reset immediately on successful connection
           showMessage(altairAddress);
+          updateReconnectButton();
           if (state.term) {
             state.term.focus();
           }
         };
 
         state.ws.onmessage = (event) => {
+          // Ignore messages from old WebSocket
+          if (state.ws !== thisWs) return;
+
           if (!state.term) {
             return;
           }
@@ -783,17 +834,20 @@
           const data = event.data;
 
           if (typeof data === "string") {
+            console.log("WebSocket received:", data.length, "bytes (string)");
             writeToTerminal(data);
             return;
           }
 
           if (data instanceof ArrayBuffer) {
+            console.log("WebSocket received:", data.byteLength, "bytes (ArrayBuffer)");
             const decoded = decoder.decode(data, { stream: true });
             writeToTerminal(decoded);
             return;
           }
 
           if (data instanceof Blob) {
+            console.log("WebSocket received:", data.size, "bytes (Blob)");
             void data.arrayBuffer()
               .then((buffer) => {
                 const decoded = decoder.decode(buffer, { stream: true });
@@ -805,17 +859,28 @@
 
         state.ws.onclose = (event) => {
           console.log("WebSocket closed:", event.code, event.reason);
+
+          // CRITICAL: Only process close if this is still the current WebSocket
+          // This prevents a race condition where an old WebSocket's onclose
+          // fires after a new WebSocket has been created, nulling out the new reference
+          if (state.ws !== thisWs) {
+            console.log("Ignoring onclose from old WebSocket");
+            return;
+          }
+
           const trailing = decoder.decode();
           writeToTerminal(trailing);
 
           // Synchronize state
           state.connected = false;
           state.ws = null;
+          updateReconnectButton();
 
           // Only show message and attempt reconnect if not user initiated
           if (!state.userInitiatedDisconnect) {
-            showMessage('Connection closed. Reconnecting...', true);
-            scheduleReconnect();
+            showMessage('Connection closed. Click Connect to reconnect.', true);
+            // Auto-reconnect disabled - single client mode means server may have
+            // kicked us for a new client, so don't fight for the connection
           } else {
             showMessage('Disconnected.', true);
             // Reset flag after handling disconnect
@@ -824,6 +889,11 @@
         };
 
         state.ws.onerror = (error) => {
+          // Ignore errors from old WebSocket
+          if (state.ws !== thisWs) {
+            console.log("Ignoring onerror from old WebSocket");
+            return;
+          }
           console.error("WebSocket error:", error);
           state.connected = false;
           // Don't call scheduleReconnect here - onclose will handle it
@@ -835,8 +905,9 @@
        * Close WebSocket connection cleanly
        */
       function closeConnection() {
-        // Cancel any pending reconnection attempts
+        // Cancel any pending reconnection attempts and timeouts
         cancelReconnect();
+        cancelConnectTimeout();
 
         if (state.ws) {
           try {
