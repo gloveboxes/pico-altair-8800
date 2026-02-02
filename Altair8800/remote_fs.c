@@ -72,6 +72,8 @@ static struct
     rfs_request_t pending_retry_request;
     uint8_t retry_count;
     uint32_t reconnect_start_time;
+    volatile bool in_callback;
+    volatile bool abort_pending;
 } client;
 
 // Static buffer for write requests to avoid stack allocation
@@ -251,6 +253,7 @@ static err_t rfs_send_read_request(const rfs_request_t* req);
 static err_t rfs_send_track_request(const rfs_request_t* req);
 static err_t rfs_send_write_request(const rfs_request_t* req);
 static void rfs_handle_response(void);
+static void rfs_abort_if_pending(void);
 static void rfs_set_error(const char* msg);
 static void rfs_attempt_reconnect(void);
 
@@ -279,6 +282,9 @@ void rfs_client_init(void)
 
 void rfs_client_poll(void)
 {
+    // Handle deferred aborts requested from callbacks
+    rfs_abort_if_pending();
+
     // Check for timeout on operations
     if (client.request_in_progress)
     {
@@ -450,10 +456,13 @@ static void rfs_start_connect(void)
         return;
     }
 
+    cyw43_arch_lwip_begin();
+
     // Create TCP PCB
     client.pcb = tcp_new();
     if (client.pcb == NULL)
     {
+        cyw43_arch_lwip_end();
         rfs_set_error("Failed to create TCP PCB");
         return;
     }
@@ -475,7 +484,17 @@ static void rfs_start_connect(void)
     err_t err = tcp_connect(client.pcb, &server_addr, RFS_SERVER_PORT, rfs_tcp_connected_cb);
     if (err != ERR_OK)
     {
-        rfs_set_error("TCP connect failed");
+        tcp_abort(client.pcb);
+        client.pcb = NULL;
+        client.state = RFS_STATE_DISCONNECTED;
+        client.request_in_progress = false;
+    }
+
+    cyw43_arch_lwip_end();
+
+    if (err != ERR_OK)
+    {
+        printf("[RFS] TCP connect failed: %d\n", err);
         return;
     }
 }
@@ -485,15 +504,20 @@ static err_t rfs_tcp_connected_cb(void* arg, struct tcp_pcb* tpcb, err_t err)
     (void)arg;
     (void)tpcb;
 
+    client.in_callback = true;
+
     if (err != ERR_OK)
     {
         rfs_set_error("Connection failed");
+        client.in_callback = false;
         return err;
     }
 
     printf("[RFS] Connected to server\n");
     client.state = RFS_STATE_CONNECTED;
     client.request_in_progress = false;
+
+    client.in_callback = false;
 
     return ERR_OK;
 }
@@ -502,7 +526,8 @@ static void rfs_tcp_err_cb(void* arg, err_t err)
 {
     (void)arg;
     printf("[RFS] TCP error: %d\n", err);
-
+    client.in_callback = true;
+    client.abort_pending = false;
     client.pcb = NULL; // PCB already freed by lwIP
 
     // Attempt to reconnect instead of fatal error
@@ -515,6 +540,8 @@ static void rfs_tcp_err_cb(void* arg, err_t err)
         // No pending request, just go to disconnected state
         client.state = RFS_STATE_DISCONNECTED;
     }
+
+    client.in_callback = false;
 }
 
 static err_t rfs_tcp_sent_cb(void* arg, struct tcp_pcb* tpcb, u16_t len)
@@ -533,11 +560,14 @@ static err_t rfs_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, er
 {
     (void)arg;
 
+    client.in_callback = true;
+
     if (err != ERR_OK)
     {
         if (p != NULL)
             pbuf_free(p);
         rfs_set_error("Receive error");
+        client.in_callback = false;
         return err;
     }
 
@@ -545,6 +575,7 @@ static err_t rfs_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, er
     {
         // Connection closed by server
         rfs_set_error("Server closed connection");
+        client.in_callback = false;
         return ERR_OK;
     }
 
@@ -568,6 +599,7 @@ static err_t rfs_tcp_recv_cb(void* arg, struct tcp_pcb* tpcb, struct pbuf* p, er
         rfs_handle_response();
     }
 
+    client.in_callback = false;
     return ERR_OK;
 }
 
@@ -599,14 +631,18 @@ static void rfs_send_init(void)
     buf[1] = (uint8_t)ip_len;
     memcpy(&buf[2], ip, ip_len);
 
+    cyw43_arch_lwip_begin();
     err_t err = tcp_write(client.pcb, buf, 2 + ip_len, TCP_WRITE_FLAG_COPY);
+    if (err == ERR_OK)
+    {
+        tcp_output(client.pcb);
+    }
+    cyw43_arch_lwip_end();
     if (err != ERR_OK)
     {
         rfs_set_error("Failed to send INIT");
         return;
     }
-
-    tcp_output(client.pcb);
 
     client.state = RFS_STATE_INIT_SENT;
     client.expected_len = 1; // status only
@@ -627,11 +663,13 @@ static err_t rfs_send_read_request(const rfs_request_t* req)
     buf[2] = req->track;
     buf[3] = req->sector;
 
+    cyw43_arch_lwip_begin();
     err_t err = tcp_write(client.pcb, buf, 4, TCP_WRITE_FLAG_COPY);
     if (err == ERR_OK)
     {
         tcp_output(client.pcb);
     }
+    cyw43_arch_lwip_end();
     return err;
 }
 
@@ -646,11 +684,13 @@ static err_t rfs_send_track_request(const rfs_request_t* req)
     buf[1] = req->drive;
     buf[2] = req->track;
 
+    cyw43_arch_lwip_begin();
     err_t err = tcp_write(client.pcb, buf, 3, TCP_WRITE_FLAG_COPY);
     if (err == ERR_OK)
     {
         tcp_output(client.pcb);
     }
+    cyw43_arch_lwip_end();
     return err;
 }
 
@@ -666,11 +706,13 @@ static err_t rfs_send_write_request(const rfs_request_t* req)
     rfs_write_buf[3] = req->sector;
     memcpy(&rfs_write_buf[4], req->data, RFS_SECTOR_SIZE);
 
+    cyw43_arch_lwip_begin();
     err_t err = tcp_write(client.pcb, rfs_write_buf, 4 + RFS_SECTOR_SIZE, TCP_WRITE_FLAG_COPY);
     if (err == ERR_OK)
     {
         tcp_output(client.pcb);
     }
+    cyw43_arch_lwip_end();
     return err;
 }
 
@@ -783,6 +825,24 @@ static void rfs_handle_response(void)
     }
 }
 
+static void rfs_abort_if_pending(void)
+{
+    if (!client.abort_pending)
+    {
+        return;
+    }
+
+    if (client.pcb != NULL)
+    {
+        cyw43_arch_lwip_begin();
+        tcp_abort(client.pcb);
+        cyw43_arch_lwip_end();
+        client.pcb = NULL;
+    }
+
+    client.abort_pending = false;
+}
+
 static void rfs_set_error(const char* msg)
 {
     printf("[RFS] FATAL ERROR: %s (retries exhausted)\n", msg);
@@ -794,8 +854,17 @@ static void rfs_set_error(const char* msg)
     // Close connection if open
     if (client.pcb != NULL)
     {
-        tcp_abort(client.pcb);
-        client.pcb = NULL;
+        if (client.in_callback)
+        {
+            client.abort_pending = true;
+        }
+        else
+        {
+            cyw43_arch_lwip_begin();
+            tcp_abort(client.pcb);
+            cyw43_arch_lwip_end();
+            client.pcb = NULL;
+        }
     }
 
     // Send error response to Core 0
@@ -811,8 +880,17 @@ static void rfs_attempt_reconnect(void)
     // Close existing connection
     if (client.pcb != NULL)
     {
-        tcp_abort(client.pcb);
-        client.pcb = NULL;
+        if (client.in_callback)
+        {
+            client.abort_pending = true;
+        }
+        else
+        {
+            cyw43_arch_lwip_begin();
+            tcp_abort(client.pcb);
+            cyw43_arch_lwip_end();
+            client.pcb = NULL;
+        }
     }
 
     client.retry_count++;

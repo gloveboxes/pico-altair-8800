@@ -6,7 +6,6 @@
 #include "hardware/timer.h"
 #include "pico/stdlib.h"
 
-#include "PortDrivers/http_io.h"
 #include "PortDrivers/files_io.h"
 #include "websocket_console.h"
 
@@ -43,8 +42,8 @@
 #endif
 
 #define WIFI_CONNECT_TIMEOUT_MS 30000
-#define WS_OUTPUT_TIMER_INTERVAL_MS 15
-#define WS_INPUT_TIMER_INTERVAL_MS 3
+#define WS_OUTPUT_TIMER_INTERVAL_MS 20
+#define WS_INPUT_TIMER_INTERVAL_MS 10
 #define DISPLAY_UPDATE_INTERVAL_MS 40  // 25 Hz display refresh
 
 static void websocket_console_core1_entry(void);
@@ -213,9 +212,10 @@ static wifi_init_result_t wifi_init(void)
 
     wifi_set_connected(true);
 
-    // Use performance power management mode for better responsiveness
-    // CYW43_PERFORMANCE_PM = short 200ms sleep retention, good balance
-    cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
+    // Disable WiFi power management completely for lowest latency
+    // With threadsafe_background, the driver is serviced by interrupt,
+    // but power save can still add latency when waking from sleep
+    cyw43_wifi_pm(&cyw43_state, CYW43_NO_POWERSAVE_MODE);
 
     // Get and store IP address
     struct netif* netif = netif_default;
@@ -227,7 +227,9 @@ static wifi_init_result_t wifi_init(void)
             ip4addr_ntoa_r(addr, ip_address_buffer, sizeof(ip_address_buffer));
             wifi_set_ip_address(ip_address_buffer); // Cache for display
         }
-        start_mdns(netif);
+        // mDNS disabled - causes significant latency spikes (500ms-2.5s)
+        // The lwIP mDNS responder blocks during multicast announcements
+        // start_mdns(netif);
     }
 
     printf("[Core1] Wi-Fi connected. IP: %s\n", ip_address_buffer);
@@ -242,7 +244,6 @@ void websocket_console_start(void)
     }
 
     websocket_queue_init();
-    http_io_init(); // Initialize HTTP file transfer queues
     files_io_init(); // Initialize file transfer client queues
 
 #ifdef REMOTE_FS_SUPPORT
@@ -345,16 +346,15 @@ static void websocket_console_core1_entry(void)
         printf("[Core1] Display updated with WiFi info\n");
 #endif
 
-        // Main poll loop - all CYW43/lwIP access stays on core 1
+        // Main poll loop - CYW43/lwIP is handled by background interrupt
+        // with pico_cyw43_arch_lwip_threadsafe_background
         while (true)
         {
-            cyw43_arch_poll();
             ws_poll(&pending_ws_input, &pending_ws_output);
 #ifdef REMOTE_FS_SUPPORT
             // Poll remote FS client
             rfs_client_poll();
 #endif
-            http_poll(); // Poll for HTTP file transfer requests
             ft_client_poll(); // Poll file transfer client
 #ifdef DISPLAY_ST7789_SUPPORT
             update_display_if_pending(); // Update display if timer triggered
@@ -378,7 +378,6 @@ static void websocket_console_core1_entry(void)
             printf("[Core1] Captive portal running, entering poll loop\n");
             while (true)
             {
-                cyw43_arch_poll();
                 captive_portal_poll();
                 tight_loop_contents();
             }

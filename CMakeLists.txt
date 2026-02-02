@@ -100,8 +100,6 @@ set(ALTAIR_SOURCES
     io_ports.c
     PortDrivers/time_io.c
     PortDrivers/utility_io.c
-    PortDrivers/http_io.c
-    PortDrivers/http_get.c
     PortDrivers/files_io.c
     PortDrivers/stats_io.c
     websocket_console.c
@@ -279,7 +277,10 @@ if(DISPLAY_ST7789_SUPPORT)
 endif()
 
 if(PICO_CYW43_SUPPORTED)
-    target_link_libraries(altair pico_cyw43_arch_lwip_poll)
+    # Use threadsafe_background for interrupt-driven WiFi polling
+    # This automatically services CYW43 via timer interrupt, eliminating
+    # the sawtooth latency pattern seen with manual polling
+    target_link_libraries(altair pico_cyw43_arch_lwip_threadsafe_background)
 endif()
 
 # Link Pimoroni Inky libraries if enabled

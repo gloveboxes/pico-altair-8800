@@ -96,7 +96,8 @@
 
 ## 🧰 Build & Port Driver Fixes
 - **Embedded Disk Build**: Fixed missing `pico_disk.c` reference; now uses `pico_88dcdd_flash.c`.
-- **WiFi Port Drivers**: `files_io`, `http_get`, and `stats_io` are now compiled for WiFi builds regardless of disk backend.
+- **WiFi Port Drivers**: `files_io` and `stats_io` are now compiled for WiFi builds regardless of disk backend.
+- **HTTP Download Removal**: Removed HTTP download port drivers (`http_io`, `http_get`).
 - **Reduced RFS Cache Spam**: Removed periodic cache stats output.
 
 ---
@@ -223,7 +224,7 @@ This major update introduces the **Remote File System**, allowing the Altair emu
 - **Unified RFS & Web Container**:
   - Combined **RFS Server** (Port 8085) and **Nginx Web Server** (Port 8086) into a single lightweight Alpine container (~50MB).
   - **RFS Server**: Moved default port to **8085** to follow Intel CPU naming conventions. 8085 came after 8080.
-  - **Web Server**: Serves local `Apps/` directory with auto-indexing enabled, allowing direct file access for the emulator via `http_get`.
+  - **Web Server**: Serves local `Apps/` directory with auto-indexing enabled for direct file access.
 - **Docker Configuration**: Updated `docker-compose.yml` and `entrypoint.sh` for multi-service support and correct Alpine Nginx paths.
 - **Reduced Logging**: Updated `remote_fs_server.py` to use `DEBUG` level for individual sector read/write logs.
 - **Systemd Service**: Added `altair-rfs.service` and `install_service.sh` for native Linux background service deployment.
