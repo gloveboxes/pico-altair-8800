@@ -181,6 +181,21 @@ static wifi_init_result_t wifi_init(void)
     wifi_set_ready(true);
     cyw43_arch_enable_sta_mode();
 
+    // Set unique hostname based on board ID BEFORE connecting
+    // This ensures the hostname is sent in DHCP requests
+    static char hostname[20];
+    pico_unique_board_id_t board_id;
+    pico_get_unique_board_id(&board_id);
+    sprintf(hostname, "pico-%02x%02x%02x",
+            board_id.id[5], board_id.id[6], board_id.id[7]);
+    
+    struct netif* netif = netif_default;
+    if (netif)
+    {
+        netif_set_hostname(netif, hostname);
+        printf("[Core1] Hostname set to: %s\n", hostname);
+    }
+
     // Load credentials from flash storage
     char ssid[CONFIG_SSID_MAX_LEN + 1] = {0};
     char password[CONFIG_PASSWORD_MAX_LEN + 1] = {0};
@@ -218,7 +233,7 @@ static wifi_init_result_t wifi_init(void)
     cyw43_wifi_pm(&cyw43_state, CYW43_NO_POWERSAVE_MODE);
 
     // Get and store IP address
-    struct netif* netif = netif_default;
+    netif = netif_default;
     if (netif && netif_is_up(netif))
     {
         const ip4_addr_t* addr = netif_ip4_addr(netif);
