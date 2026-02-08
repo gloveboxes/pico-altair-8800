@@ -26,10 +26,8 @@
 #include "cyw43.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
-#include "lwip/apps/mdns.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
-#include "pico/unique_id.h"
 #include "wifi.h"
 #include "ws.h"
 #include "captive_portal/captive_portal.h"
@@ -72,46 +70,6 @@ static volatile bool pending_display_update = false;
 // External CPU reference for display updates
 extern intel8080_t cpu;
 #endif
-
-static bool mdns_started = false;
-static char mdns_hostname[32] = {0};
-
-static void start_mdns(struct netif* netif)
-{
-    if (mdns_started || !netif)
-    {
-        return;
-    }
-
-    if (mdns_hostname[0] == '\0')
-    {
-        pico_unique_board_id_t board_id;
-        pico_get_unique_board_id(&board_id);
-        // Use last 4 bytes for a short, stable suffix
-        snprintf(mdns_hostname, sizeof(mdns_hostname),
-                 "altair-8800-%02x%02x%02x%02x",
-                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 4],
-                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 3],
-                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 2],
-                 board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 1]);
-    }
-
-    const char* hostname = mdns_hostname;
-    netif_set_hostname(netif, hostname);
-
-    mdns_resp_init();
-
-    s8_t err = mdns_resp_add_netif(netif, hostname);
-    if (err < 0)
-    {
-        printf("[Core1] mDNS add netif failed (err=%d)\n", err);
-        return;
-    }
-
-    mdns_resp_add_service(netif, "Altair 8800", "_http", DNSSD_PROTO_TCP, 80, NULL, NULL);
-    mdns_started = true;
-    printf("[Core1] mDNS started: %s.local\n", hostname);
-}
 
 // Timer callback for output - fires every 20ms
 static bool ws_output_timer_callback(struct repeating_timer* t)
@@ -183,12 +141,7 @@ static wifi_init_result_t wifi_init(void)
 
     // Set unique hostname based on board ID BEFORE connecting
     // This ensures the hostname is sent in DHCP requests
-    static char hostname[20];
-    pico_unique_board_id_t board_id;
-    pico_get_unique_board_id(&board_id);
-    sprintf(hostname, "pico-%02x%02x%02x",
-            board_id.id[5], board_id.id[6], board_id.id[7]);
-    
+    const char* hostname = wifi_get_hostname();
     struct netif* netif = netif_default;
     if (netif)
     {
@@ -242,9 +195,6 @@ static wifi_init_result_t wifi_init(void)
             ip4addr_ntoa_r(addr, ip_address_buffer, sizeof(ip_address_buffer));
             wifi_set_ip_address(ip_address_buffer); // Cache for display
         }
-        // mDNS disabled - causes significant latency spikes (500ms-2.5s)
-        // The lwIP mDNS responder blocks during multicast announcements
-        // start_mdns(netif);
     }
 
     printf("[Core1] Wi-Fi connected. IP: %s\n", ip_address_buffer);
@@ -293,11 +243,6 @@ bool is_ap_mode_active(void)
 bool websocket_console_is_running(void)
 {
     return console_running && wifi_connected && ws_is_running();
-}
-
-const char* get_mdns_hostname(void)
-{
-    return mdns_started && mdns_hostname[0] != '\0' ? mdns_hostname : NULL;
 }
 
 static void websocket_console_core1_entry(void)

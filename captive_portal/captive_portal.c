@@ -5,6 +5,7 @@
 
 #include "captive_portal.h"
 #include "config_page_hex.h"
+#include "../wifi.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -642,17 +643,12 @@ static size_t build_device_info_json(char* out, size_t out_len)
     }
     id_hex[sizeof(id_hex) - 1] = '\0';
 
-    const char* mdns_prefix = "altair-8800-";
-    char mdns[32];
-    snprintf(mdns, sizeof(mdns), "%s%02x%02x%02x%02x.local", mdns_prefix,
-             board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 4],
-             board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 3],
-             board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 2],
-             board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 1]);
+    char url[64];
+    snprintf(url, sizeof(url), "http://%s:8088/", wifi_get_hostname());
 
     return (size_t)snprintf(out, out_len,
-                            "{\"id\":\"%s\",\"mdns\":\"%s\"}",
-                            id_hex, mdns);
+                            "{\"id\":\"%s\",\"hostname\":\"%s\"}",
+                            id_hex, url);
 }
 
 static void http_process_request(http_conn_t* conn)

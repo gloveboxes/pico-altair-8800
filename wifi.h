@@ -14,3 +14,6 @@ void wifi_set_connected(bool connected);
 // Cached IP address access (simple, no lwIP calls)
 void wifi_set_ip_address(const char* ip);
 const char* wifi_get_ip_address(void); // Returns NULL if not set
+
+// Get device hostname (e.g., "altair-ab12") - generated from unique board ID
+const char* wifi_get_hostname(void);

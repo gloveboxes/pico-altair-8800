@@ -40,7 +40,7 @@ void display_st7789_update(const char* ssid, const char* ip)
     if (ip != NULL && ip[0] != '\0')
     {
         char ip_text[32];
-        snprintf(ip_text, sizeof(ip_text), "WIFI: %s", ip);
+        snprintf(ip_text, sizeof(ip_text), "HTTP://%s:8088", ip);
 
         // Calculate width: 5x8 font + 1px spacing = 6px per char
         int title_len = strlen(ip_text);
@@ -48,7 +48,7 @@ void display_st7789_update(const char* ssid, const char* ip)
 
         st7789_async_text(ip_text, title_x, 220, TEXT_WHITE);
         st7789_async_update();
-        printf("[Display] WiFi info updated: %s\n", ip);
+        printf("[Display] WiFi info updated: %s\n", ip_text);
     }
 #else
     (void)ssid;
@@ -140,7 +140,7 @@ void display_st7789_init_front_panel(void)
     if (ip != NULL)
     {
         char ip_text[32];
-        snprintf(ip_text, sizeof(ip_text), "WIFI: %s", ip);
+        snprintf(ip_text, sizeof(ip_text), "WIFI: %s:8088", ip);
 
         // Calculate width: 5x8 font + 1px spacing = 6px per char
         int title_len = strlen(ip_text);

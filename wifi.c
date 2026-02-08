@@ -3,6 +3,7 @@
 #include "pico/cyw43_arch.h"
 #include "pico/error.h"
 #include "pico/stdlib.h"
+#include "pico/unique_id.h"
 
 #include "cyw43.h"
 
@@ -15,6 +16,7 @@
 static bool wifi_hw_ready = false;
 static bool wifi_connected = false;
 static char wifi_ip_address[16] = {0}; // Cached IP address string
+static char wifi_hostname[20] = {0};   // Cached hostname (e.g., "altair-ab12")
 
 bool wifi_is_ready(void)
 {
@@ -57,6 +59,19 @@ void wifi_set_ip_address(const char* ip)
 const char* wifi_get_ip_address(void)
 {
     return wifi_ip_address[0] != '\0' ? wifi_ip_address : NULL;
+}
+
+const char* wifi_get_hostname(void)
+{
+    // Generate hostname on first call (lazy initialization)
+    if (wifi_hostname[0] == '\0')
+    {
+        pico_unique_board_id_t board_id;
+        pico_get_unique_board_id(&board_id);
+        snprintf(wifi_hostname, sizeof(wifi_hostname), "altair-%02x%02x",
+                 board_id.id[6], board_id.id[7]);
+    }
+    return wifi_hostname;
 }
 
 bool wifi_get_ip(char* buffer, size_t length)

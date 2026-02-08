@@ -23,6 +23,7 @@
 #include "pico/error.h"
 #include "pico/stdlib.h"
 #include "pico/platform.h"
+#include "wifi.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -269,12 +270,6 @@ static void setup_wifi(void)
                  (unsigned long)((ip_raw >> 8) & 0xFF), (unsigned long)((ip_raw >> 16) & 0xFF),
                  (unsigned long)((ip_raw >> 24) & 0xFF));
         printf("Wi-Fi connected. IP: %s\n", g_ip_buffer);
-
-        const char* mdns_name = get_mdns_hostname();
-        if (mdns_name)
-        {
-            printf("mDNS: http://%s.local:8088/\n", mdns_name);
-        }
     }
     else
     {
@@ -345,6 +340,13 @@ int main(void)
     printf("  Altair 8800 Emulator\n");
     printf("  Board: %s\n", PICO_BOARD);
     printf("  Build: %d (%s %s)\n", BUILD_VERSION, BUILD_DATE, BUILD_TIME);
+#if defined(CYW43_WL_GPIO_LED_PIN)
+    if (g_wifi_ok)
+    {
+        printf("  URL: http://%s:8088\n", g_ip_buffer);
+        printf("       http://%s:8088\n", wifi_get_hostname());
+    }
+#endif
     printf("========================================\n");
     printf("\n");
 
