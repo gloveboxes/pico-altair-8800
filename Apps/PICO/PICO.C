@@ -7,6 +7,15 @@
  * To compile with BDS C:
  * cc pico
  * clink pico
+
+ * Pico Stats support for Altair 8800
+ * BDS C 1.6 on CP/M
+ *
+ * Rewritten for BDS C constraints:
+ *  - All symbols unique within first 7 characters
+ *  - K&R style definitions only
+ *  - No support for casts
+ *  - No support for goto labels named 'end'
  */
 
 #include <stdio.h>
@@ -45,6 +54,24 @@ int main()
 
     /* Display Header */
     cputs("\r\nPico Stats\r\n");
+
+    /* Get Device ID - Port 46, data 0 */
+    outp(46, 0);
+    read_string_from_port(buffer, 255);
+    cputs("\r\nDevice ID:        ");
+    cputs(buffer);
+
+    /* Get WiFi IP Address - Port 46, data 1 */
+    outp(46, 1);
+    read_string_from_port(buffer, 255);
+    cputs("\r\nWiFi IP address:  ");
+    cputs(buffer);
+
+    /* Get Physical Device ID - Port 46, data 2 */
+    outp(46, 2);
+    read_string_from_port(buffer, 255);
+    cputs("\r\nPhysical ID:      ");
+    cputs(buffer);
 
     /* Get Emulator Version - Port 70 */
     outp(70, 0);
