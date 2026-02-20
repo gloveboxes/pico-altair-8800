@@ -58,7 +58,7 @@ int main()
     /* Get Device ID - Port 46, data 0 */
     outp(46, 0);
     read_string_from_port(buffer, 255);
-    cputs("\r\nDevice ID:        ");
+    cputs("\r\nHostname:         ");
     cputs(buffer);
 
     /* Get WiFi IP Address - Port 46, data 1 */
@@ -70,7 +70,7 @@ int main()
     /* Get Physical Device ID - Port 46, data 2 */
     outp(46, 2);
     read_string_from_port(buffer, 255);
-    cputs("\r\nPhysical ID:      ");
+    cputs("\r\nDevice ID:        ");
     cputs(buffer);
 
     /* Get Emulator Version - Port 70 */
