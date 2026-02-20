@@ -14,6 +14,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 #include "pico/cyw43_arch.h"
+#include "pico/unique_id.h"
 #include "wifi.h"
 #include "pico/util/queue.h"
 
@@ -612,27 +613,28 @@ static void rfs_send_init(void)
     if (client.pcb == NULL)
         return;
 
-    const char* ip = wifi_get_ip_address();
-    if (ip == NULL || ip[0] == '\0')
-    {
-        rfs_set_error("Cached IP not available for INIT");
-        return;
-    }
+    // Use the full unique board ID (8 bytes -> 16 hex chars) as the stable client identifier
+    pico_unique_board_id_t board_id;
+    pico_get_unique_board_id(&board_id);
 
-    size_t ip_len = strlen(ip);
-    if (ip_len == 0 || ip_len > 15)
-    {
-        rfs_set_error("Invalid IP length for INIT");
-        return;
-    }
+    // Format all 8 bytes as a 16-character hex string
+    char id_str[17]; // 16 hex chars + null terminator
+    snprintf(id_str, sizeof(id_str),
+             "%02x%02x%02x%02x%02x%02x%02x%02x",
+             board_id.id[0], board_id.id[1], board_id.id[2], board_id.id[3],
+             board_id.id[4], board_id.id[5], board_id.id[6], board_id.id[7]);
+
+    size_t id_len = strlen(id_str); // Always 16
 
     uint8_t buf[1 + 1 + 16];
     buf[0] = RFS_CMD_INIT;
-    buf[1] = (uint8_t)ip_len;
-    memcpy(&buf[2], ip, ip_len);
+    buf[1] = (uint8_t)id_len;
+    memcpy(&buf[2], id_str, id_len);
+
+    printf("[RFS] INIT with device ID: %s\n", id_str);
 
     cyw43_arch_lwip_begin();
-    err_t err = tcp_write(client.pcb, buf, 2 + ip_len, TCP_WRITE_FLAG_COPY);
+    err_t err = tcp_write(client.pcb, buf, 2 + id_len, TCP_WRITE_FLAG_COPY);
     if (err == ERR_OK)
     {
         tcp_output(client.pcb);
