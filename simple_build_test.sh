@@ -7,7 +7,7 @@
 # Usage:
 #   ./simple_build_test.sh
 #   BUILD_DIR=build-test-parallel ./simple_build_test.sh
-#   PARALLEL_LEVELS="1 2 4 8" ./simple_build_test.sh
+#   PARALLEL_LEVELS="4 6 8 12" ./simple_build_test.sh
 #   RUNS_PER_LEVEL=2 ./simple_build_test.sh
 #
 # Notes:
@@ -28,7 +28,7 @@ cd "$SCRIPT_DIR"
 
 BUILD_DIR="${BUILD_DIR:-build-test-parallel}"
 RUNS_PER_LEVEL="${RUNS_PER_LEVEL:-1}"
-PARALLEL_LEVELS_STRING="${PARALLEL_LEVELS:-8 12 18}"
+PARALLEL_LEVELS_STRING="${PARALLEL_LEVELS:-4 6 8 12}"
 
 # Use a complex board/config that exercises the heavy Pico W build path.
 PICO_BOARD_VALUE="${PICO_BOARD_VALUE:-pico2_w}"
