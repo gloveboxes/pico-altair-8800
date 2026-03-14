@@ -1,17 +1,17 @@
 #include "wifi.h"
 
+#include "pico/unique_id.h"
+#include <stdio.h>
+#include <string.h>
+
+#ifdef PICO_CYW43_SUPPORTED
+
 #include "pico/cyw43_arch.h"
 #include "pico/error.h"
 #include "pico/stdlib.h"
-#include "pico/unique_id.h"
-
 #include "cyw43.h"
-
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
-
-#include <stdio.h>
-#include <string.h>
 
 static bool wifi_hw_ready = false;
 static bool wifi_connected = false;
@@ -112,3 +112,33 @@ bool wifi_get_ip(char* buffer, size_t length)
 
     return ok;
 }
+
+#else // !PICO_CYW43_SUPPORTED — stub implementations for non-WiFi boards
+
+static char wifi_hostname[20] = {0};
+
+bool wifi_is_ready(void)                     { return false; }
+bool wifi_is_connected(void)                 { return false; }
+void wifi_set_ready(bool ready)              { (void)ready; }
+void wifi_set_connected(bool connected)      { (void)connected; }
+void wifi_set_ip_address(const char* ip)     { (void)ip; }
+const char* wifi_get_ip_address(void)        { return NULL; }
+bool wifi_get_ip(char* buffer, size_t length)
+{
+    if (buffer && length > 0) buffer[0] = '\0';
+    return false;
+}
+
+const char* wifi_get_hostname(void)
+{
+    if (wifi_hostname[0] == '\0')
+    {
+        pico_unique_board_id_t board_id;
+        pico_get_unique_board_id(&board_id);
+        snprintf(wifi_hostname, sizeof(wifi_hostname), "altair-%02x%02x",
+                 board_id.id[6], board_id.id[7]);
+    }
+    return wifi_hostname;
+}
+
+#endif // PICO_CYW43_SUPPORTED

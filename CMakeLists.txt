@@ -67,6 +67,12 @@ if(INKY_SUPPORT OR DISPLAY_2_8_SUPPORT OR SD_CARD_SUPPORT)
     add_subdirectory(${PIMORONI_PICO_PATH}/common pimoroni-pico/common)
     add_subdirectory(${PIMORONI_PICO_PATH}/drivers pimoroni-pico/drivers)
     add_subdirectory(${PIMORONI_PICO_PATH}/libraries pimoroni-pico/libraries)
+
+    # Suppress old K&R-style function definition warnings from vendored zlib
+    # sources in pngdec (GCC 15 enables -Wold-style-definition by default)
+    if(TARGET pngdec)
+        target_compile_options(pngdec PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-old-style-definition>)
+    endif()
 endif()
 
 # Generate build version header
@@ -91,6 +97,7 @@ target_include_directories(lwipopts_provider INTERFACE ${CMAKE_CURRENT_LIST_DIR}
 
 set(ALTAIR_SOURCES
     main.c
+    wifi.c
     cpu_state.c
     FrontPanels/virtual_monitor.c
     FrontPanels/inky_display.cpp
@@ -173,7 +180,6 @@ if(PICO_CYW43_SUPPORTED)
     )
 
     list(APPEND ALTAIR_SOURCES 
-        wifi.c 
         ws.cpp
         captive_portal/captive_portal.c
         ${PICO_SDK_PATH}/lib/lwip/src/apps/http/http_client.c

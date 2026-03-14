@@ -1,5 +1,45 @@
 # Raspberry Pi Pico Altair 8800
 
+- [Raspberry Pi Pico Altair 8800](#raspberry-pi-pico-altair-8800)
+  - [Project Heritage](#project-heritage)
+  - [Clone With Submodules](#clone-with-submodules)
+  - [Serial Terminal](#serial-terminal)
+    - [macos](#macos)
+  - [Wi-Fi Console](#wi-fi-console)
+  - [SD Card Support](#sd-card-support)
+    - [Pico Pins](#pico-pins)
+    - [Overview](#overview)
+    - [Hardware Wiring (Pololu SD Card Breakout)](#hardware-wiring-pololu-sd-card-breakout)
+      - [Pololu SD Card Breakout (Back View)](#pololu-sd-card-breakout-back-view)
+      - [Visual Wiring Diagram](#visual-wiring-diagram)
+    - [Pin Conflicts](#pin-conflicts)
+    - [SD Card Requirements](#sd-card-requirements)
+    - [Usage](#usage)
+    - [Troubleshooting SD Card](#troubleshooting-sd-card)
+  - [Selecting a Target Board](#selecting-a-target-board)
+    - [CMake Configuration Options](#cmake-configuration-options)
+  - [Remote File System (RFS) Support](#remote-file-system-rfs-support)
+    - [Overview](#overview-1)
+    - [Architecture](#architecture)
+    - [Prerequisites: Installing Docker](#prerequisites-installing-docker)
+    - [Server Setup (Docker Recommended)](#server-setup-docker-recommended)
+    - [Client Configuration](#client-configuration)
+  - [Regenerate Disk Image Header](#regenerate-disk-image-header)
+  - [Rebuild for Performance](#rebuild-for-performance)
+  - [Deploying Firmware](#deploying-firmware)
+  - [Building for Different Boards](#building-for-different-boards)
+    - [Available Build Tasks](#available-build-tasks)
+    - [Running Build Tasks](#running-build-tasks)
+    - [Manual Build Commands](#manual-build-commands)
+  - [Install the Pico Toolchain](#install-the-pico-toolchain)
+  - [Install Install Xcode Command Line Tools](#install-install-xcode-command-line-tools)
+  - [Install CMake tools](#install-cmake-tools)
+  - [Install Ninja](#install-ninja)
+  - [Install Pico Tools (picotool)](#install-pico-tools-picotool)
+  - [Install the VS Code Pico Extension](#install-the-vs-code-pico-extension)
+  - [CLang Formatter](#clang-formatter)
+
+
 ## Project Heritage
 
 This project is a microcontroller implementation of the [Altair 8800 Emulator on Embedded Linux](https://github.com/gloveboxes/Altair-8800-Emulator).
@@ -356,13 +396,15 @@ rm -rf build && cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2 && 
 
 4. Update your `~/.zprofile` file
 
+    These environment variables assume ARM GNU Toolchain version: 15.2.rel1 and adjust as needed.
+
     ```text
     # Raspberry Pi Pico SDK
     export PICO_SDK_PATH=$HOME/GitHub/pico/pico-sdk
 
     # ARM GNU Toolchain
-    export PICO_TOOLCHAIN_PATH="/Applications/ArmGNUToolchain/14.3.rel1/arm-none-eabi"
-    export PATH="/Applications/ArmGNUToolchain/14.3.rel1/arm-none-eabi/bin:$PATH"
+    export PICO_TOOLCHAIN_PATH="/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi"
+    export PATH="/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin:$PATH"
     ```
 
 5. Reload the `.zprofile`
