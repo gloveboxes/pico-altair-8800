@@ -316,7 +316,7 @@
         {
             "label": "Build All Boards (Release)",
             "type": "shell",
-            "command": "./build_all_boards.sh && mkdir -p Releases && cp tests/pico/altair_pico.uf2 Releases/ && cp tests/pico2/altair_pico2.uf2 Releases/ && cp tests/pico2_w/altair_pico2_w.uf2 Releases/ && cp tests/pico2_w_sd/altair_pico2_w_sd.uf2 Releases/ && cp tests/pimoroni_pico_plus2_w_rp2350/altair_pimoroni_pico_plus2_w_rp2350.uf2 Releases/ && cp tests/pimoroni_pico_plus2_w_rp2350_sd/altair_pimoroni_pico_plus2_w_rp2350_sd.uf2 Releases/ && cp tests/pimoroni_pico_plus2_w_rp2350_display28_rfs/altair_pimoroni_pico_plus2_w_rp2350_display28_rfs.uf2 Releases/ && cp tests/pico2_w_display28_rfs/altair_pico2_w_display28_rfs.uf2 Releases/ && cp tests/pico2_w_inky_rfs/altair_pico2_w_inky_rfs.uf2 Releases/ && cp tests/pico_w/altair_pico_w.uf2 Releases/ && cp tests/pico_w_inky/altair_pico_w_inky.uf2 Releases/",
+            "command": "./build_all_boards.sh",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
