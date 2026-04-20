@@ -1,13 +1,14 @@
 #include "pico_88dcdd_sd_card.h"
 
-#include "drivers/waveshare/ws_spi1_bus.h"
+#include "drivers/waveshare/ws_fatfs.h"
 
 // MITS 88-DCDD Disk Controller Emulation for Pico with Waveshare SD support
 // Uses Waveshare SPI1 session coordination around FatFs file I/O.
 
 sd_disk_controller_t sd_disk_controller;
 
-static void writeSector(sd_disk_t* pDisk);
+static void flushDirtySector(sd_disk_t* pDisk);
+static FRESULT flushDirtySectorAndReposition(sd_disk_t* pDisk, uint32_t seek_offset);
 
 static const uint8_t STATUS_DEFAULT =
     STATUS_ENWD | STATUS_MOVE_HEAD | STATUS_HEAD | STATUS_IE | STATUS_TRACK_0 | STATUS_NRDA;
@@ -31,17 +32,9 @@ static void seek_to_track(void)
         return;
     }
 
-    ws_spi1_begin_sd_session();
-
-    if (disk->sectorDirty)
-    {
-        writeSector(disk);
-    }
-
     uint32_t seek_offset = disk->track * TRACK_SIZE;
-    FRESULT fr = f_lseek(&disk->fil, seek_offset);
-
-    ws_spi1_end_sd_session();
+    FRESULT fr = disk->sectorDirty ? flushDirtySectorAndReposition(disk, seek_offset)
+                                   : ws_f_lseek(&disk->fil, seek_offset);
 
     if (fr != FR_OK)
     {
@@ -82,23 +75,18 @@ bool sd_disk_load(uint8_t drive, const char* disk_path)
 
     if (disk->disk_loaded)
     {
-        ws_spi1_begin_sd_session();
-        f_close(&disk->fil);
-        ws_spi1_end_sd_session();
+        ws_f_close(&disk->fil);
         disk->disk_loaded = false;
     }
 
-    ws_spi1_begin_sd_session();
-    FRESULT fr = f_open(&disk->fil, disk_path, FA_READ | FA_WRITE);
+    FRESULT fr = ws_f_open(&disk->fil, disk_path, FA_READ | FA_WRITE);
     if (fr != FR_OK)
     {
-        ws_spi1_end_sd_session();
         printf("[WS_SD_DISK] Failed to open %s, error: %d\n", disk_path, fr);
         return false;
     }
 
     FSIZE_t file_size = f_size(&disk->fil);
-    ws_spi1_end_sd_session();
     if (file_size < DISK_SIZE)
     {
         printf("[WS_SD_DISK] Warning: %s is smaller than expected (%lu bytes)\n",
@@ -210,17 +198,9 @@ uint8_t sd_disk_sector(void)
         disk->sector = 0;
     }
 
-    ws_spi1_begin_sd_session();
-
-    if (disk->sectorDirty)
-    {
-        writeSector(disk);
-    }
-
     uint32_t seek_offset = disk->track * TRACK_SIZE + disk->sector * SECTOR_SIZE;
-    FRESULT fr = f_lseek(&disk->fil, seek_offset);
-
-    ws_spi1_end_sd_session();
+    FRESULT fr = disk->sectorDirty ? flushDirtySectorAndReposition(disk, seek_offset)
+                                   : ws_f_lseek(&disk->fil, seek_offset);
 
     if (fr != FR_OK)
     {
@@ -259,7 +239,7 @@ void sd_disk_write(uint8_t data)
 
     if (disk->write_status == SECTOR_SIZE)
     {
-        writeSector(disk);
+        flushDirtySector(disk);
         disk->write_status = 0;
         clear_status(STATUS_ENWD);
     }
@@ -284,13 +264,8 @@ uint8_t sd_disk_read(void)
         memset(disk->sectorData, 0x00, SECTOR_SIZE);
 
         UINT bytes_read;
-        ws_spi1_begin_sd_session();
-        FRESULT fr = f_lseek(&disk->fil, disk->diskPointer);
-        if (fr == FR_OK)
-        {
-            fr = f_read(&disk->fil, disk->sectorData, SECTOR_SIZE, &bytes_read);
-        }
-        ws_spi1_end_sd_session();
+        FRESULT fr = ws_f_lseek_read(&disk->fil, disk->diskPointer,
+                                     disk->sectorData, SECTOR_SIZE, &bytes_read);
 
         if (fr != FR_OK)
         {
@@ -312,7 +287,7 @@ uint8_t sd_disk_read(void)
     return disk->sectorData[disk->sectorPointer++];
 }
 
-static void writeSector(sd_disk_t* pDisk)
+static void flushDirtySector(sd_disk_t* pDisk)
 {
     if (!pDisk->sectorDirty)
     {
@@ -320,17 +295,8 @@ static void writeSector(sd_disk_t* pDisk)
     }
 
     UINT bytes_written;
-    bool owns_session = !ws_spi1_sd_session_active();
-    if (owns_session)
-    {
-        ws_spi1_begin_sd_session();
-    }
-
-    FRESULT fr = f_lseek(&pDisk->fil, pDisk->diskPointer);
-    if (fr == FR_OK)
-    {
-        fr = f_write(&pDisk->fil, pDisk->sectorData, SECTOR_SIZE, &bytes_written);
-    }
+    FRESULT fr = ws_f_lseek_write_sync(&pDisk->fil, pDisk->diskPointer,
+                                       pDisk->sectorData, SECTOR_SIZE, &bytes_written);
 
     if (fr != FR_OK)
     {
@@ -341,16 +307,31 @@ static void writeSector(sd_disk_t* pDisk)
         printf("[WS_SD_DISK] Sector write incomplete: wrote %u of %u bytes\n",
                bytes_written, SECTOR_SIZE);
     }
-    else
-    {
-        f_sync(&pDisk->fil);
-    }
 
-    if (owns_session)
+    pDisk->sectorPointer = 0;
+    pDisk->sectorDirty = false;
+}
+
+static FRESULT flushDirtySectorAndReposition(sd_disk_t* pDisk, uint32_t seek_offset)
+{
+    UINT bytes_written;
+    FRESULT seek_fr;
+    FRESULT write_fr = ws_f_lseek_write_sync_lseek(&pDisk->fil, pDisk->diskPointer,
+                                                   pDisk->sectorData, SECTOR_SIZE,
+                                                   &bytes_written, seek_offset, &seek_fr);
+
+    if (write_fr != FR_OK)
     {
-        ws_spi1_end_sd_session();
+        printf("[WS_SD_DISK] Sector write failed, error: %d\n", write_fr);
+    }
+    else if (bytes_written != SECTOR_SIZE)
+    {
+        printf("[WS_SD_DISK] Sector write incomplete: wrote %u of %u bytes\n",
+               bytes_written, SECTOR_SIZE);
     }
 
     pDisk->sectorPointer = 0;
     pDisk->sectorDirty = false;
+
+    return seek_fr;
 }

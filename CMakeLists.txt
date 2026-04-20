@@ -142,7 +142,10 @@ if(WAVESHARE_3_5_DISPLAY)
         drivers/waveshare/ws_display.c
     )
     if(SD_CARD_SUPPORT)
-        list(APPEND ALTAIR_SOURCES drivers/waveshare/ws_sdcard.c)
+        list(APPEND ALTAIR_SOURCES
+            drivers/waveshare/ws_sdcard.c
+            drivers/waveshare/ws_fatfs.c
+        )
     endif()
 endif()
 

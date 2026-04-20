@@ -13,6 +13,7 @@
 #endif
 #include "FrontPanels/display_st7789.h"
 #ifdef WAVESHARE_3_5_DISPLAY
+#include "drivers/waveshare/ws_fatfs.h"
 #include "drivers/waveshare/ws_display.h"
 #include "drivers/waveshare/ws_spi1_bus.h"
 #endif
@@ -379,11 +380,9 @@ int main(void)
 
     static FATFS fs;
 #ifdef WAVESHARE_3_5_DISPLAY
-    ws_spi1_begin_sd_session();
-#endif
+    FRESULT fr = ws_f_mount(&fs, "", 1); // Immediate mount (calls disk_initialize internally)
+#else
     FRESULT fr = f_mount(&fs, "", 1); // Immediate mount (calls disk_initialize internally)
-#ifdef WAVESHARE_3_5_DISPLAY
-    ws_spi1_end_sd_session();
 #endif
 
     if (fr != FR_OK)

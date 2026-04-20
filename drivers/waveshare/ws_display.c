@@ -7,12 +7,9 @@
 #include "ws_ili9488.h"
 #include "build_version.h"
 #include "FrontPanels/font_5x8.h"
+#include "wifi.h"
 #include <stdio.h>
 #include <string.h>
-
-#ifdef CYW43_WL_GPIO_LED_PIN
-#include "wifi.h"
-#endif
 
 /* ---- Layout constants ---- */
 #define LED_SZ  18
@@ -171,7 +168,6 @@ void ws_display_init(void)
 
 void ws_display_update_wifi(const char* ssid, const char* ip)
 {
-#ifdef CYW43_WL_GPIO_LED_PIN
     ws_color_t W = ws_rgb565(255, 255, 255);
     ws_color_t BG = ws_rgb565(25, 55, 110);
     (void)ssid;
@@ -183,9 +179,6 @@ void ws_display_update_wifi(const char* ssid, const char* ip)
         else           snprintf(buf, sizeof buf, "WIFI: %s", ip);
         ws_ili9488_text(buf, 6, Y_WIFI, W, BG);
     }
-#else
-    (void)ssid; (void)ip;
-#endif
 }
 
 void ws_display_init_front_panel(void)
@@ -197,7 +190,6 @@ void ws_display_init_front_panel(void)
     snprintf(title, sizeof title, "ALTAIR 8800 (%d %s %s)", BUILD_VERSION, BUILD_DATE, BUILD_TIME);
     ws_ili9488_text_2x(title, 4, Y_TITLE, W, BG);
 
-#ifdef CYW43_WL_GPIO_LED_PIN
     const char* ip = wifi_get_ip_address();
     if (ip && ip[0]) {
         char buf[96];
@@ -206,7 +198,6 @@ void ws_display_init_front_panel(void)
         else           snprintf(buf, sizeof buf, "WIFI: %s", ip);
         ws_ili9488_text(buf, 6, Y_WIFI, W, BG);
     }
-#endif
 
     compose(0, 0, 0);
     ws_ili9488_blit(PA_X, PA_Y, PA_W, PA_H, g_panel);
