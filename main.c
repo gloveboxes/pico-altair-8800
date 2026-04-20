@@ -12,6 +12,10 @@
 #include "Altair8800/pico_88dcdd_flash.h"
 #endif
 #include "FrontPanels/display_st7789.h"
+#ifdef WAVESHARE_3_5_DISPLAY
+#include "drivers/waveshare/ws_display.h"
+#include "drivers/waveshare/ws_spi1_bus.h"
+#endif
 #include "FrontPanels/inky_display.h"
 #include "build_version.h"
 #include "core1_io_mgr.h"
@@ -320,7 +324,9 @@ int main(void)
         }
     }
 
+#if !(defined(WAVESHARE_3_5_DISPLAY) && defined(SD_CARD_SUPPORT))
     setup_wifi();
+#endif
 #else
     // Board has no WiFi - wait for USB serial connection before proceeding
     // This ensures we don't miss any output on non-WiFi boards
@@ -371,19 +377,14 @@ int main(void)
     // Initialize and mount SD card
     printf("Initializing SD card...\n");
 
-#ifdef WAVESHARE_3_5_DISPLAY
-    // Waveshare 3.5" display shares SPI1 with LCD (CS=9), Touch (CS=16), and SD (CS=22)
-    // We must ensure LCD and Touch CS pins are HIGH to prevent SPI bus interference
-    gpio_init(9);
-    gpio_set_dir(9, GPIO_OUT);
-    gpio_put(9, 1); // Deselect LCD
-    gpio_init(16);
-    gpio_set_dir(16, GPIO_OUT);
-    gpio_put(16, 1); // Deselect Touch
-#endif
-
     static FATFS fs;
+#ifdef WAVESHARE_3_5_DISPLAY
+    ws_spi1_begin_sd_session();
+#endif
     FRESULT fr = f_mount(&fs, "", 1); // Immediate mount (calls disk_initialize internally)
+#ifdef WAVESHARE_3_5_DISPLAY
+    ws_spi1_end_sd_session();
+#endif
 
     if (fr != FR_OK)
     {
@@ -441,6 +442,10 @@ int main(void)
         printf("DISK_D initialization failed!\n");
         return -1;
     }
+#if defined(CYW43_WL_GPIO_LED_PIN) && defined(WAVESHARE_3_5_DISPLAY) && defined(SD_CARD_SUPPORT)
+    printf("Deferring Wi-Fi/display startup until SD boot images are loaded on shared SPI1...\n");
+    setup_wifi();
+#endif
 #elif defined(REMOTE_FS_SUPPORT)
     // Connect to remote FS server
     printf(">>> REMOTE_FS: About to connect...\n");

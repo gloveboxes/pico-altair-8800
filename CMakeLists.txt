@@ -134,10 +134,26 @@ if(DISPLAY_ST7789_SUPPORT)
     endif()
 endif()
 
+# Conditionally add Waveshare 3.5" display + SD drivers
+if(WAVESHARE_3_5_DISPLAY)
+    list(APPEND ALTAIR_SOURCES
+        drivers/waveshare/ws_spi1_bus.c
+        drivers/waveshare/ws_ili9488.c
+        drivers/waveshare/ws_display.c
+    )
+    if(SD_CARD_SUPPORT)
+        list(APPEND ALTAIR_SOURCES drivers/waveshare/ws_sdcard.c)
+    endif()
+endif()
+
 
 # Conditionally add disk controller based on SD card support
 if(SD_CARD_SUPPORT)
-    list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card.c)
+    if(WAVESHARE_3_5_DISPLAY)
+        list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card_ws.c)
+    else()
+        list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card.c)
+    endif()
 elseif(REMOTE_FS_SUPPORT)
     list(APPEND ALTAIR_SOURCES 
         Altair8800/pico_88dcdd_remote_fs.c
@@ -220,18 +236,6 @@ endif()
 
 if(SD_CARD_SUPPORT)
     target_compile_definitions(altair PRIVATE SD_CARD_SUPPORT=1)
-    
-    # Waveshare 3.5" display uses spi1 with different SD card pins
-    if(WAVESHARE_3_5_DISPLAY)
-        message(STATUS "📀 Configuring SD card for Waveshare 3.5\" display (spi1, GPIO 10/11/12/22)")
-        target_compile_definitions(altair PRIVATE
-            SDCARD_SPI_BUS=spi1
-            SDCARD_PIN_SPI0_SCK=10
-            SDCARD_PIN_SPI0_MOSI=11
-            SDCARD_PIN_SPI0_MISO=12
-            SDCARD_PIN_SPI0_CS=22
-        )
-    endif()
 endif()
 
 if(WAVESHARE_3_5_DISPLAY)
@@ -248,6 +252,7 @@ target_include_directories(altair PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/Altair8800
     ${CMAKE_CURRENT_LIST_DIR}/PortDrivers
     ${CMAKE_CURRENT_LIST_DIR}/FrontPanels
+    ${CMAKE_CURRENT_LIST_DIR}/drivers/waveshare
     ${CMAKE_CURRENT_LIST_DIR}/captive_portal
     ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -282,6 +287,14 @@ if(DISPLAY_ST7789_SUPPORT)
     )
 endif()
 
+if(WAVESHARE_3_5_DISPLAY)
+    target_link_libraries(altair
+        hardware_spi
+        hardware_dma
+        hardware_pwm
+    )
+endif()
+
 if(PICO_CYW43_SUPPORTED)
     # Use threadsafe_background for interrupt-driven WiFi polling
     # This automatically services CYW43 via timer interrupt, eliminating
@@ -309,20 +322,11 @@ if(DISPLAY_2_8_SUPPORT)
 endif()
 
 if(SD_CARD_SUPPORT)
-    target_link_libraries(altair
-        sdcard
-    )
-    
-    # Waveshare 3.5" display uses spi1 with different SD card pins
-    # Must add definitions to sdcard INTERFACE library for them to take effect
     if(WAVESHARE_3_5_DISPLAY)
-        target_compile_definitions(sdcard INTERFACE
-            SDCARD_SPI_BUS=spi1
-            SDCARD_PIN_SPI0_SCK=10
-            SDCARD_PIN_SPI0_MOSI=11
-            SDCARD_PIN_SPI0_MISO=12
-            SDCARD_PIN_SPI0_CS=22
-        )
+        # Waveshare has its own SD card driver — only link FatFs
+        target_link_libraries(altair fatfs)
+    else()
+        target_link_libraries(altair sdcard)
     endif()
 endif()
 
