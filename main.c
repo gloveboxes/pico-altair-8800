@@ -17,6 +17,7 @@
 #include "drivers/waveshare/ws_display.h"
 #include "drivers/waveshare/ws_spi1_bus.h"
 #endif
+#include "drivers/bluetooth/bt_keyboard.h"
 #include "FrontPanels/inky_display.h"
 #include "build_version.h"
 #include "core1_io_mgr.h"
@@ -28,6 +29,7 @@
 #include "pico/error.h"
 #include "pico/stdlib.h"
 #include "pico/platform.h"
+#include "pico/flash.h"
 #include "wifi.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,6 +55,10 @@ extern intel8080_t cpu;
 static uint8_t terminal_read(void);
 static void terminal_write(uint8_t c);
 static inline uint8_t sense(void);
+#if defined(BLUETOOTH_KEYBOARD_SUPPORT)
+static int serial_wait_for_char_ms(uint32_t timeout_ms);
+static void maybe_run_bluetooth_keyboard_shell(void);
+#endif
 
 // RAM-resident spin function for AP mode - must not execute from flash
 // during flash erase/program operations. Disables interrupts to prevent
@@ -184,6 +190,16 @@ static uint8_t terminal_read(void)
     {
         return (uint8_t)(ws_ch & ASCII_MASK_7BIT);
     }
+
+#if defined(BLUETOOTH_KEYBOARD_SUPPORT)
+    uint8_t bt_ch = 0;
+    if (bt_keyboard_try_dequeue_input(&bt_ch))
+    {
+        return (uint8_t)(bt_ch & ASCII_MASK_7BIT);
+    }
+#endif
+
+    return 0x00;
 #else
     int c = getchar_timeout_us(0); // Non-blocking read
     if (c == PICO_ERROR_TIMEOUT)
@@ -249,6 +265,10 @@ static void setup_wifi(void)
     rfs_client_init();
 #endif
 
+#if defined(BLUETOOTH_KEYBOARD_SUPPORT)
+    bt_keyboard_queue_init();
+#endif
+
     // Launch network task on core 1 (handles Wi-Fi init, WebSocket server, polling)
     websocket_console_start();
 
@@ -265,6 +285,14 @@ static void setup_wifi(void)
         printf("Connect to 'Altair8800-Setup' WiFi to configure.\n");
         spin_in_ram(); // Never returns - device reboots after config save
     }
+
+#if defined(BLUETOOTH_KEYBOARD_SUPPORT)
+    // Enable multicore lockout on core 0 so core 1 can safely write to flash
+    // (required for BTstack TLV bond storage via flash_safe_execute).
+    // Must be AFTER wait_for_wifi() because the lockout IRQ handler consumes
+    // all FIFO messages, which would swallow the IP address signal from core 1.
+    flash_safe_execute_core_init();
+#endif
     
     g_wifi_ok = (ip_raw != 0);
 
@@ -281,7 +309,132 @@ static void setup_wifi(void)
         strncpy(g_ip_buffer, "No network", sizeof(g_ip_buffer) - 1);
         printf("Wi-Fi unavailable; USB terminal only.\n");
     }
+
+#if defined(BLUETOOTH_KEYBOARD_SUPPORT)
+    maybe_run_bluetooth_keyboard_shell();
+#endif
 }
+
+#if defined(BLUETOOTH_KEYBOARD_SUPPORT)
+static int serial_wait_for_char_ms(uint32_t timeout_ms)
+{
+    absolute_time_t start_time = get_absolute_time();
+    while (absolute_time_diff_us(start_time, get_absolute_time()) < ((int64_t)timeout_ms * 1000))
+    {
+        int c = getchar_timeout_us(100000);
+        if (c != PICO_ERROR_TIMEOUT)
+        {
+            return c;
+        }
+    }
+    return PICO_ERROR_TIMEOUT;
+}
+
+static void print_bluetooth_keyboard_status(void)
+{
+    printf("Bluetooth keyboard: ");
+    if (!bt_keyboard_is_ready())
+    {
+        printf("initializing");
+    }
+    else if (bt_keyboard_is_connected())
+    {
+        printf("connected");
+    }
+    else if (bt_keyboard_has_bond())
+    {
+        printf("bonded, waiting to reconnect");
+    }
+    else
+    {
+        printf("not paired");
+    }
+    printf("\n");
+}
+
+static void maybe_run_bluetooth_keyboard_shell(void)
+{
+    if (!stdio_usb_connected())
+    {
+        return;
+    }
+
+    print_bluetooth_keyboard_status();
+    printf("Press 'B' within 5 seconds to manage Bluetooth keyboard pairing.\n");
+
+    int c = serial_wait_for_char_ms(5000);
+    if (c == PICO_ERROR_TIMEOUT)
+    {
+        return;
+    }
+
+    if (c != 'B' && c != 'b' && c != 'U' && c != 'u')
+    {
+        return;
+    }
+
+    if (c == 'U' || c == 'u')
+    {
+        bt_keyboard_request_clear_bonds();
+    }
+
+    printf("\nBluetooth keyboard manager\n");
+    printf("  P - pair with the first BLE HID keyboard found\n");
+    printf("  U - clear stored Bluetooth bond\n");
+    printf("  D - disconnect current keyboard\n");
+    printf("  S - show status\n");
+    printf("  Q - continue boot\n");
+
+    for (;;)
+    {
+        printf("bt> ");
+        int cmd = PICO_ERROR_TIMEOUT;
+        while (cmd == PICO_ERROR_TIMEOUT)
+        {
+            cmd = getchar_timeout_us(100000);
+        }
+
+        if (cmd == '\r' || cmd == '\n')
+        {
+            continue;
+        }
+
+        switch (cmd)
+        {
+            case 'P':
+            case 'p':
+                printf("Starting keyboard pairing flow...\n");
+                printf("Select an empty Bluetooth slot on the keyboard, then hold the pairing key.\n");
+                bt_keyboard_request_pairing();
+                break;
+
+            case 'U':
+            case 'u':
+                bt_keyboard_request_clear_bonds();
+                break;
+
+            case 'D':
+            case 'd':
+                bt_keyboard_request_disconnect();
+                break;
+
+            case 'S':
+            case 's':
+                print_bluetooth_keyboard_status();
+                break;
+
+            case 'Q':
+            case 'q':
+                printf("Leaving Bluetooth keyboard manager.\n\n");
+                return;
+
+            default:
+                printf("Unknown command '%c'. Use P, U, D, S, or Q.\n", (char)cmd);
+                break;
+        }
+    }
+}
+#endif
 
 
 

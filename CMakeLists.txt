@@ -28,6 +28,7 @@ option(WAVESHARE_3_5_DISPLAY "Enable Waveshare 3.5 inch LCD support (uses spi1)"
 option(WAVESHARE_2_DISPLAY "Enable Waveshare 2.0 inch display" OFF)
 option(DISPLAY_ST7789_SUPPORT "Enable ST7789 LCD support" OFF)
 option(REMOTE_FS_SUPPORT "Enable Remote FS support" OFF)
+option(BLUETOOTH_KEYBOARD_SUPPORT "Enable Bluetooth LE keyboard support" OFF)
 
 # Ensure only one display is enabled at a time
 if(INKY_SUPPORT AND DISPLAY_2_8_SUPPORT)
@@ -113,6 +114,16 @@ set(ALTAIR_SOURCES
     config.c
     core1_io_mgr.c
 )
+
+if(BLUETOOTH_KEYBOARD_SUPPORT)
+    if(NOT PICO_CYW43_SUPPORTED)
+        message(FATAL_ERROR "BLUETOOTH_KEYBOARD_SUPPORT requires a CYW43-based board such as pico_w or pico2_w.")
+    endif()
+
+    list(APPEND ALTAIR_SOURCES
+        drivers/bluetooth/bt_keyboard.c
+    )
+endif()
 
 # Conditionally add Display 2.8 sources
 if(DISPLAY_2_8_SUPPORT)
@@ -249,12 +260,30 @@ if(WAVESHARE_2_DISPLAY)
     target_compile_definitions(altair PRIVATE WAVESHARE_2_DISPLAY=1)
 endif()
 
+if(BLUETOOTH_KEYBOARD_SUPPORT)
+    if(PICO_BOARD STREQUAL "pico_w")
+        set(ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET 0x1FD000)
+    elseif(PICO_BOARD STREQUAL "pico2_w")
+        set(ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET 0x3FD000)
+    elseif(PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
+        set(ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET 0x1FD000)
+    else()
+        message(FATAL_ERROR "BLUETOOTH_KEYBOARD_SUPPORT flash layout is only configured for pico_w, pico2_w, and pimoroni_pico_plus2_w_rp2350.")
+    endif()
+
+    target_compile_definitions(altair PRIVATE
+        BLUETOOTH_KEYBOARD_SUPPORT=1
+        PICO_FLASH_BANK_STORAGE_OFFSET=${ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET}
+    )
+endif()
+
 # Make sure all CYW43 headers are visible and include Altair8800 directory
 target_include_directories(altair PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/Altair8800
     ${CMAKE_CURRENT_LIST_DIR}/PortDrivers
     ${CMAKE_CURRENT_LIST_DIR}/FrontPanels
+    ${CMAKE_CURRENT_LIST_DIR}/drivers/bluetooth
     ${CMAKE_CURRENT_LIST_DIR}/drivers/waveshare
     ${CMAKE_CURRENT_LIST_DIR}/captive_portal
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -303,6 +332,13 @@ if(PICO_CYW43_SUPPORTED)
     # This automatically services CYW43 via timer interrupt, eliminating
     # the sawtooth latency pattern seen with manual polling
     target_link_libraries(altair pico_cyw43_arch_lwip_threadsafe_background)
+endif()
+
+if(BLUETOOTH_KEYBOARD_SUPPORT)
+    target_link_libraries(altair
+        pico_btstack_ble
+        pico_btstack_cyw43
+    )
 endif()
 
 # Link Pimoroni Inky libraries if enabled

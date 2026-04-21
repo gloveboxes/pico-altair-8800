@@ -7,6 +7,7 @@
 #include "pico/stdlib.h"
 
 #include "PortDrivers/files_io.h"
+#include "drivers/bluetooth/bt_keyboard.h"
 #include "websocket_console.h"
 
 #ifdef DISPLAY_ST7789_SUPPORT
@@ -50,7 +51,12 @@
 #define WIFI_CONNECT_TIMEOUT_MS 30000
 #define WS_OUTPUT_TIMER_INTERVAL_MS 20
 #define WS_INPUT_TIMER_INTERVAL_MS 10
-#define DISPLAY_UPDATE_INTERVAL_MS 20  // 50 Hz display refresh
+
+#if defined(WAVESHARE_3_5_DISPLAY) && defined(BLUETOOTH_KEYBOARD_SUPPORT)
+#define DISPLAY_UPDATE_INTERVAL_MS 100  // 10 Hz to leave core-1 headroom for BLE + display DMA
+#else
+#define DISPLAY_UPDATE_INTERVAL_MS 20   // 50 Hz display refresh
+#endif
 
 static void websocket_console_core1_entry(void);
 
@@ -180,6 +186,11 @@ static wifi_init_result_t wifi_init(void)
     }
 
     wifi_set_ready(true);
+
+#ifdef BLUETOOTH_KEYBOARD_SUPPORT
+    bt_keyboard_init();
+#endif
+
     cyw43_arch_enable_sta_mode();
 
     // Set unique hostname based on board ID BEFORE connecting
@@ -372,6 +383,9 @@ static void websocket_console_core1_entry(void)
             rfs_client_poll();
 #endif
             ft_client_poll(); // Poll file transfer client
+#ifdef BLUETOOTH_KEYBOARD_SUPPORT
+            bt_keyboard_poll();
+#endif
 #ifdef DISPLAY_ST7789_SUPPORT
             update_display_if_pending(); // Update display if timer triggered
 #endif
