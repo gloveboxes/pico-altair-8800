@@ -292,7 +292,7 @@
         {
             "label": "Build for Pico 2 W with Waveshare 3.5 + SD Card (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DWAVESHARE_3_5_DISPLAY=ON -DSD_CARD_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_waveshare35_sd.uf2",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DWAVESHARE_3_5_DISPLAY=ON -DSD_CARD_SUPPORT=ON -DBLUETOOTH_KEYBOARD_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_waveshare35_sd_bt.uf2",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -304,7 +304,7 @@
         {
             "label": "Build and Deploy Pico 2 W with Waveshare 3.5 + SD Card (Release)",
             "type": "shell",
-            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DWAVESHARE_3_5_DISPLAY=ON -DSD_CARD_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_waveshare35_sd.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
+            "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2_w -DWAVESHARE_3_5_DISPLAY=ON -DSD_CARD_SUPPORT=ON -DBLUETOOTH_KEYBOARD_SUPPORT=ON && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico2_w_waveshare35_sd_bt.uf2 && echo '\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },

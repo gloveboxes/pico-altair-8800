@@ -28,6 +28,7 @@ option(WAVESHARE_3_5_DISPLAY "Enable Waveshare 3.5 inch LCD support (uses spi1)"
 option(WAVESHARE_2_DISPLAY "Enable Waveshare 2.0 inch display" OFF)
 option(DISPLAY_ST7789_SUPPORT "Enable ST7789 LCD support" OFF)
 option(REMOTE_FS_SUPPORT "Enable Remote FS support" OFF)
+option(BLUETOOTH_KEYBOARD_SUPPORT "Enable Bluetooth LE keyboard support" OFF)
 
 # Ensure only one display is enabled at a time
 if(INKY_SUPPORT AND DISPLAY_2_8_SUPPORT)
@@ -114,6 +115,16 @@ set(ALTAIR_SOURCES
     core1_io_mgr.c
 )
 
+if(BLUETOOTH_KEYBOARD_SUPPORT)
+    if(NOT PICO_CYW43_SUPPORTED)
+        message(FATAL_ERROR "BLUETOOTH_KEYBOARD_SUPPORT requires a CYW43-based board such as pico_w or pico2_w.")
+    endif()
+
+    list(APPEND ALTAIR_SOURCES
+        drivers/bluetooth/bt_keyboard.c
+    )
+endif()
+
 # Conditionally add Display 2.8 sources
 if(DISPLAY_2_8_SUPPORT)
     list(APPEND ALTAIR_SOURCES
@@ -134,10 +145,29 @@ if(DISPLAY_ST7789_SUPPORT)
     endif()
 endif()
 
+# Conditionally add Waveshare 3.5" display + SD drivers
+if(WAVESHARE_3_5_DISPLAY)
+    list(APPEND ALTAIR_SOURCES
+        drivers/waveshare/ws_spi1_bus.c
+        drivers/waveshare/ws_ili9488.c
+        drivers/waveshare/ws_display.c
+    )
+    if(SD_CARD_SUPPORT)
+        list(APPEND ALTAIR_SOURCES
+            drivers/waveshare/ws_sdcard.c
+            drivers/waveshare/ws_fatfs.c
+        )
+    endif()
+endif()
+
 
 # Conditionally add disk controller based on SD card support
 if(SD_CARD_SUPPORT)
-    list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card.c)
+    if(WAVESHARE_3_5_DISPLAY)
+        list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card_ws.c)
+    else()
+        list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card.c)
+    endif()
 elseif(REMOTE_FS_SUPPORT)
     list(APPEND ALTAIR_SOURCES 
         Altair8800/pico_88dcdd_remote_fs.c
@@ -220,18 +250,6 @@ endif()
 
 if(SD_CARD_SUPPORT)
     target_compile_definitions(altair PRIVATE SD_CARD_SUPPORT=1)
-    
-    # Waveshare 3.5" display uses spi1 with different SD card pins
-    if(WAVESHARE_3_5_DISPLAY)
-        message(STATUS "📀 Configuring SD card for Waveshare 3.5\" display (spi1, GPIO 10/11/12/22)")
-        target_compile_definitions(altair PRIVATE
-            SDCARD_SPI_BUS=spi1
-            SDCARD_PIN_SPI0_SCK=10
-            SDCARD_PIN_SPI0_MOSI=11
-            SDCARD_PIN_SPI0_MISO=12
-            SDCARD_PIN_SPI0_CS=22
-        )
-    endif()
 endif()
 
 if(WAVESHARE_3_5_DISPLAY)
@@ -242,12 +260,31 @@ if(WAVESHARE_2_DISPLAY)
     target_compile_definitions(altair PRIVATE WAVESHARE_2_DISPLAY=1)
 endif()
 
+if(BLUETOOTH_KEYBOARD_SUPPORT)
+    if(PICO_BOARD STREQUAL "pico_w")
+        set(ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET 0x1FD000)
+    elseif(PICO_BOARD STREQUAL "pico2_w")
+        set(ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET 0x3FD000)
+    elseif(PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
+        set(ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET 0x1FD000)
+    else()
+        message(FATAL_ERROR "BLUETOOTH_KEYBOARD_SUPPORT flash layout is only configured for pico_w, pico2_w, and pimoroni_pico_plus2_w_rp2350.")
+    endif()
+
+    target_compile_definitions(altair PRIVATE
+        BLUETOOTH_KEYBOARD_SUPPORT=1
+        PICO_FLASH_BANK_STORAGE_OFFSET=${ALTAIR_BT_FLASH_BANK_STORAGE_OFFSET}
+    )
+endif()
+
 # Make sure all CYW43 headers are visible and include Altair8800 directory
 target_include_directories(altair PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/Altair8800
     ${CMAKE_CURRENT_LIST_DIR}/PortDrivers
     ${CMAKE_CURRENT_LIST_DIR}/FrontPanels
+    ${CMAKE_CURRENT_LIST_DIR}/drivers/bluetooth
+    ${CMAKE_CURRENT_LIST_DIR}/drivers/waveshare
     ${CMAKE_CURRENT_LIST_DIR}/captive_portal
     ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -282,11 +319,26 @@ if(DISPLAY_ST7789_SUPPORT)
     )
 endif()
 
+if(WAVESHARE_3_5_DISPLAY)
+    target_link_libraries(altair
+        hardware_spi
+        hardware_dma
+        hardware_pwm
+    )
+endif()
+
 if(PICO_CYW43_SUPPORTED)
     # Use threadsafe_background for interrupt-driven WiFi polling
     # This automatically services CYW43 via timer interrupt, eliminating
     # the sawtooth latency pattern seen with manual polling
     target_link_libraries(altair pico_cyw43_arch_lwip_threadsafe_background)
+endif()
+
+if(BLUETOOTH_KEYBOARD_SUPPORT)
+    target_link_libraries(altair
+        pico_btstack_ble
+        pico_btstack_cyw43
+    )
 endif()
 
 # Link Pimoroni Inky libraries if enabled
@@ -309,20 +361,11 @@ if(DISPLAY_2_8_SUPPORT)
 endif()
 
 if(SD_CARD_SUPPORT)
-    target_link_libraries(altair
-        sdcard
-    )
-    
-    # Waveshare 3.5" display uses spi1 with different SD card pins
-    # Must add definitions to sdcard INTERFACE library for them to take effect
     if(WAVESHARE_3_5_DISPLAY)
-        target_compile_definitions(sdcard INTERFACE
-            SDCARD_SPI_BUS=spi1
-            SDCARD_PIN_SPI0_SCK=10
-            SDCARD_PIN_SPI0_MOSI=11
-            SDCARD_PIN_SPI0_MISO=12
-            SDCARD_PIN_SPI0_CS=22
-        )
+        # Waveshare has its own SD card driver — only link FatFs
+        target_link_libraries(altair fatfs)
+    else()
+        target_link_libraries(altair sdcard)
     endif()
 endif()
 

@@ -14,6 +14,10 @@
 #include "ff.h"
 #include "diskio.h"
 
+#ifdef WAVESHARE_3_5_DISPLAY
+#include "FrontPanels/spi1_bus.h"
+#endif
+
 
 /*--------------------------------------------------------------------------
 
@@ -51,7 +55,13 @@
 #define CT_BLOCK       0x08            /* Block addressing */
 
 #define CLK_SLOW	(100 * KHZ)
+#ifdef WAVESHARE_3_5_DISPLAY
+// Shared with ILI9488 on SPI1: 25 MHz is the SD SPI standard speed.
+// spi1_bus_acquire_sd() sets this; CLK_FAST is used during disk_initialize.
+#define CLK_FAST	(25 * MHZ)
+#else
 #define CLK_FAST	(30 * MHZ)
+#endif
 
 static volatile
 DSTATUS Stat = STA_NOINIT;	/* Physical drive status */
@@ -115,6 +125,11 @@ static void CS_LOW(void)
 static
 void init_spi(void)
 {
+#ifdef WAVESHARE_3_5_DISPLAY
+	/* Shared SPI1 bus: peripheral, data pins, and CS pins are all
+	   initialized by spi1_bus_init() in spi1_bus.c.  Nothing to do here. */
+	(void)0;
+#else
 	/* GPIO pin configuration */
 	/* pull up of MISO is MUST (10Kohm external pull up is recommended) */
 	/* Set drive strength and slew rate if needed to meet wire condition */
@@ -175,6 +190,7 @@ void init_spi(void)
 				SDCARD_PIN_SPI0_MISO
 	);
 #endif
+#endif /* !WAVESHARE_3_5_DISPLAY */
 }
 
 /* Exchange a byte */
@@ -288,6 +304,16 @@ int rcvr_datablock (	/* 1:OK, 0:Error */
 }
 
 
+static BYTE send_cmd(BYTE cmd, DWORD arg);
+
+
+static
+int read_csd (BYTE *csd)
+{
+	return (send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16);
+}
+
+
 /*-----------------------------------------------------------------------*/
 /* Send a command packet to the MMC                                      */
 /*-----------------------------------------------------------------------*/
@@ -352,13 +378,25 @@ DSTATUS disk_initialize (
 	BYTE n, cmd, ty, ocr[4];
 	const uint32_t timeout = 1000; /* Initialization timeout = 1 sec */
 	uint32_t t;
+	bool owns_spi1_lock = true;
 
 
 	if (drv) return STA_NOINIT;			/* Supports only drive 0 */
+
+#ifdef WAVESHARE_3_5_DISPLAY
+	owns_spi1_lock = !spi1_bus_sd_session_active();
+	if (owns_spi1_lock) spi1_bus_acquire_sd();
+#endif
+
 	init_spi();							/* Initialize SPI */
     sleep_ms(10);
 
-	if (Stat & STA_NODISK) return Stat;	/* Is card existing in the soket? */
+	if (Stat & STA_NODISK) {
+#ifdef WAVESHARE_3_5_DISPLAY
+		if (owns_spi1_lock) spi1_bus_release();
+#endif
+		return Stat;	/* Is card existing in the soket? */
+	}
 
 	FCLK_SLOW();
 	CS_LOW();
@@ -397,6 +435,10 @@ DSTATUS disk_initialize (
 		Stat = STA_NOINIT;
 	}
 
+#ifdef WAVESHARE_3_5_DISPLAY
+	if (owns_spi1_lock) spi1_bus_release();
+#endif
+
 	return Stat;
 }
 
@@ -428,8 +470,14 @@ DRESULT disk_read (
 	UINT count		/* Number of sectors to read (1..128) */
 )
 {
+	bool owns_spi1_lock = true;
 	if (drv || !count) return RES_PARERR;		/* Check parameter */
 	if (Stat & STA_NOINIT) return RES_NOTRDY;	/* Check if drive is ready */
+
+#ifdef WAVESHARE_3_5_DISPLAY
+	owns_spi1_lock = !spi1_bus_sd_session_active();
+	if (owns_spi1_lock) spi1_bus_acquire_sd();
+#endif
 
 	if (!(CardType & CT_BLOCK)) sector *= 512;	/* LBA ot BA conversion (byte addressing cards) */
 
@@ -449,6 +497,10 @@ DRESULT disk_read (
 		}
 	}
 	deselect();
+
+#ifdef WAVESHARE_3_5_DISPLAY
+	if (owns_spi1_lock) spi1_bus_release();
+#endif
 
 	return count ? RES_ERROR : RES_OK;	/* Return result */
 }
@@ -514,13 +566,24 @@ DRESULT disk_write (
 	UINT count			/* Number of sectors to write (1..128) */
 )
 {
+	bool owns_spi1_lock = true;
 	if (drv || !count) return RES_PARERR;		/* Check parameter */
 	if (Stat & STA_NOINIT) return RES_NOTRDY;	/* Check drive status */
 	if (Stat & STA_PROTECT) return RES_WRPRT;	/* Check write protect */
 
+#ifdef WAVESHARE_3_5_DISPLAY
+	owns_spi1_lock = !spi1_bus_sd_session_active();
+	if (owns_spi1_lock) spi1_bus_acquire_sd();
+#endif
+
 	if (!(CardType & CT_BLOCK)) sector *= 512;	/* LBA ==> BA conversion (byte addressing cards) */
 
-	if (!_select()) return RES_NOTRDY;
+	if (!_select()) {
+#ifdef WAVESHARE_3_5_DISPLAY
+		if (owns_spi1_lock) spi1_bus_release();
+#endif
+		return RES_NOTRDY;
+	}
 
 	if (count == 1) {	/* Single sector write */
 		if ((send_cmd(CMD24, sector) == 0)	/* WRITE_BLOCK */
@@ -540,6 +603,10 @@ DRESULT disk_write (
 	}
 	deselect();
 
+#ifdef WAVESHARE_3_5_DISPLAY
+	if (owns_spi1_lock) spi1_bus_release();
+#endif
+
 	return count ? RES_ERROR : RES_OK;	/* Return result */
 }
 #endif
@@ -558,10 +625,16 @@ DRESULT disk_ioctl (
 	DRESULT res;
 	BYTE n, csd[16];
 	DWORD *dp, st, ed, csize;
+	bool owns_spi1_lock = true;
 
 
 	if (drv) return RES_PARERR;					/* Check parameter */
 	if (Stat & STA_NOINIT) return RES_NOTRDY;	/* Check if drive is ready */
+
+#ifdef WAVESHARE_3_5_DISPLAY
+	owns_spi1_lock = !spi1_bus_sd_session_active();
+	if (owns_spi1_lock) spi1_bus_acquire_sd();
+#endif
 
 	res = RES_ERROR;
 
@@ -571,7 +644,7 @@ DRESULT disk_ioctl (
 		break;
 
 	case GET_SECTOR_COUNT :	/* Get drive capacity in unit of sector (DWORD) */
-		if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {
+		if (read_csd(csd)) {
 			if ((csd[0] >> 6) == 1) {	/* SDC ver 2.00 */
 				csize = csd[9] + ((WORD)csd[8] << 8) + ((DWORD)(csd[7] & 63) << 16) + 1;
 				*(DWORD*)buff = csize << 10;
@@ -595,7 +668,7 @@ DRESULT disk_ioctl (
 				}
 			}
 		} else {					/* SDC ver 1.XX or MMC */
-			if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {	/* Read CSD */
+			if (read_csd(csd)) {	/* Read CSD */
 				if (CardType & CT_SD1) {	/* SDC ver 1.XX */
 					*(DWORD*)buff = (((csd[10] & 63) << 1) + ((WORD)(csd[11] & 128) >> 7) + 1) << ((csd[13] >> 6) - 1);
 				} else {					/* MMC */
@@ -608,7 +681,7 @@ DRESULT disk_ioctl (
 
 	case CTRL_TRIM :	/* Erase a block of sectors (used when _USE_ERASE == 1) */
 		if (!(CardType & CT_SDC)) break;				/* Check if the card is SDC */
-		if (disk_ioctl(drv, MMC_GET_CSD, csd)) break;	/* Get CSD */
+		if (!read_csd(csd)) break;	/* Get CSD without recursive lock acquisition */
 		if (!(csd[0] >> 6) && !(csd[10] & 0x40)) break;	/* Check if sector erase can be applied to the card */
 		dp = buff; st = dp[0]; ed = dp[1];				/* Load sector block */
 		if (!(CardType & CT_BLOCK)) {
@@ -624,6 +697,10 @@ DRESULT disk_ioctl (
 	}
 
 	deselect();
+
+#ifdef WAVESHARE_3_5_DISPLAY
+	if (owns_spi1_lock) spi1_bus_release();
+#endif
 
 	return res;
 }

@@ -7,12 +7,21 @@
 #include "pico/stdlib.h"
 
 #include "PortDrivers/files_io.h"
+#include "drivers/bluetooth/bt_keyboard.h"
 #include "websocket_console.h"
 
 #ifdef DISPLAY_ST7789_SUPPORT
 #include "FrontPanels/display_st7789.h"
 #include "cpu_state.h"
 #include "Altair8800/intel8080.h"
+#endif
+
+#ifdef WAVESHARE_3_5_DISPLAY
+#include "drivers/waveshare/ws_display.h"
+#ifndef DISPLAY_ST7789_SUPPORT
+#include "cpu_state.h"
+#include "Altair8800/intel8080.h"
+#endif
 #endif
 
 #ifdef INKY_SUPPORT
@@ -42,7 +51,12 @@
 #define WIFI_CONNECT_TIMEOUT_MS 30000
 #define WS_OUTPUT_TIMER_INTERVAL_MS 20
 #define WS_INPUT_TIMER_INTERVAL_MS 10
-#define DISPLAY_UPDATE_INTERVAL_MS 40  // 25 Hz display refresh
+
+#if defined(WAVESHARE_3_5_DISPLAY) && defined(BLUETOOTH_KEYBOARD_SUPPORT)
+#define DISPLAY_UPDATE_INTERVAL_MS 100  // 10 Hz to leave core-1 headroom for BLE + display DMA
+#else
+#define DISPLAY_UPDATE_INTERVAL_MS 20   // 50 Hz display refresh
+#endif
 
 static void websocket_console_core1_entry(void);
 
@@ -71,6 +85,15 @@ static volatile bool pending_display_update = false;
 extern intel8080_t cpu;
 #endif
 
+#if defined(WAVESHARE_3_5_DISPLAY) && !defined(DISPLAY_ST7789_SUPPORT)
+// Timer for periodic ILI9488 display updates (Core 1)
+static struct repeating_timer display_update_timer;
+static volatile bool pending_display_update = false;
+
+// External CPU reference for display updates
+extern intel8080_t cpu;
+#endif
+
 // Timer callback for output - fires every 20ms
 static bool ws_output_timer_callback(struct repeating_timer* t)
 {
@@ -88,7 +111,7 @@ static bool ws_input_timer_callback(struct repeating_timer* t)
 }
 
 #ifdef DISPLAY_ST7789_SUPPORT
-// Timer callback for display updates - fires every 33ms (~30 Hz)
+// Timer callback for display updates - fires every 20ms (~50 Hz)
 static bool display_update_timer_callback(struct repeating_timer* t)
 {
     (void)t;
@@ -117,6 +140,32 @@ static inline void update_display_if_pending(void)
 }
 #endif
 
+#if defined(WAVESHARE_3_5_DISPLAY) && !defined(DISPLAY_ST7789_SUPPORT)
+// Timer callback for ILI9488 display updates - fires every 20ms (~50 Hz)
+static bool display_update_timer_callback(struct repeating_timer* t)
+{
+    (void)t;
+    pending_display_update = true;
+    return true;
+}
+
+// ILI9488 display update function for Core 1
+static inline void update_display_if_pending(void)
+{
+    if (!pending_display_update)
+    {
+        return;
+    }
+    pending_display_update = false;
+
+    uint16_t status_word = cpu.cpuStatus;
+    if (cpu.registers.flags & FLAGS_IF)
+        status_word |= (1 << 9);
+
+    ws_display_show_front_panel(cpu.address_bus, cpu.data_bus, status_word);
+}
+#endif
+
 // WiFi initialization result
 typedef enum
 {
@@ -137,6 +186,11 @@ static wifi_init_result_t wifi_init(void)
     }
 
     wifi_set_ready(true);
+
+#ifdef BLUETOOTH_KEYBOARD_SUPPORT
+    bt_keyboard_init();
+#endif
+
     cyw43_arch_enable_sta_mode();
 
     // Set unique hostname based on board ID BEFORE connecting
@@ -261,10 +315,18 @@ static void websocket_console_core1_entry(void)
 
 #ifdef DISPLAY_ST7789_SUPPORT
     add_repeating_timer_ms(-DISPLAY_UPDATE_INTERVAL_MS, display_update_timer_callback, NULL, &display_update_timer);
-    printf("[Core1] Started display update timer (%dms interval, ~30 Hz)\n", DISPLAY_UPDATE_INTERVAL_MS);
+    printf("[Core1] Started display update timer (%dms interval, ~50 Hz)\n", DISPLAY_UPDATE_INTERVAL_MS);
     display_st7789_init();
     display_st7789_init_front_panel();
     printf("[Core1] Virtual Front Panel initialized\n");
+#endif
+
+#if defined(WAVESHARE_3_5_DISPLAY) && !defined(DISPLAY_ST7789_SUPPORT)
+    add_repeating_timer_ms(-DISPLAY_UPDATE_INTERVAL_MS, display_update_timer_callback, NULL, &display_update_timer);
+    printf("[Core1] Started Waveshare display update timer (%dms interval, ~50 Hz)\n", DISPLAY_UPDATE_INTERVAL_MS);
+    ws_display_init();
+    ws_display_init_front_panel();
+    printf("[Core1] Waveshare Virtual Front Panel initialized\n");
 #endif
 
     // Initialize Wi-Fi on core 1
@@ -306,6 +368,11 @@ static void websocket_console_core1_entry(void)
         printf("[Core1] Display updated with WiFi info\n");
 #endif
 
+#if defined(WAVESHARE_3_5_DISPLAY) && !defined(DISPLAY_ST7789_SUPPORT)
+        ws_display_update_wifi(connected_ssid, ip_address_buffer);
+        printf("[Core1] Waveshare display updated with WiFi info\n");
+#endif
+
         // Main poll loop - CYW43/lwIP is handled by background interrupt
         // with pico_cyw43_arch_lwip_threadsafe_background
         while (true)
@@ -316,8 +383,15 @@ static void websocket_console_core1_entry(void)
             rfs_client_poll();
 #endif
             ft_client_poll(); // Poll file transfer client
+#ifdef BLUETOOTH_KEYBOARD_SUPPORT
+            bt_keyboard_poll();
+#endif
 #ifdef DISPLAY_ST7789_SUPPORT
             update_display_if_pending(); // Update display if timer triggered
+#endif
+#if defined(WAVESHARE_3_5_DISPLAY) && !defined(DISPLAY_ST7789_SUPPORT)
+            update_display_if_pending(); // Update Waveshare display if timer triggered
+            ws_display_poll();           // Progress async DMA queue/completion
 #endif
             tight_loop_contents();
         }
