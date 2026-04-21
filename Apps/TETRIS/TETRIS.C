@@ -127,14 +127,14 @@ int init_shp()
     pcs_shp[PIECE_Z][3] = 0x2640;
     /* J */
     pcs_shp[PIECE_J][0] = 0x08E0;
-    pcs_shp[PIECE_J][1] = 0x64C0;
+    pcs_shp[PIECE_J][1] = 0x6440;
     pcs_shp[PIECE_J][2] = 0x0E20;
-    pcs_shp[PIECE_J][3] = 0x6440;
+    pcs_shp[PIECE_J][3] = 0x44C0;
     /* L */
     pcs_shp[PIECE_L][0] = 0x02E0;
     pcs_shp[PIECE_L][1] = 0x4460;
     pcs_shp[PIECE_L][2] = 0x0E80;
-    pcs_shp[PIECE_L][3] = 0xC440;
+    pcs_shp[PIECE_L][3] = 0x0C44;
     return 0;
 }
 
