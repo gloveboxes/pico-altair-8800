@@ -51,6 +51,20 @@ For multiple changed files, pass them all in one command.
 
 8. If host-compiling for syntax, treat modern compiler K&R warnings as expected, but fix real syntax errors. Host compilers do not enforce all BDS C rules.
 
+## Altair CP/M Build Workflow
+
+When the user asks to build, test-build, compile, or smoke-test a CP/M app in this repo, use the `altair-cpm-build` MCP server instead of manually driving CP/M command-by-command.
+
+- Prefer the MCP tool `build_app` for normal app builds. Pass the app folder/base name in lowercase, for example `{"app":"breakout"}` or `{"app":"snake"}`. It returns the full CP/M transcript by default; set `verbose=false` only when a compact summary is enough.
+- `build_app` restores fresh disks by default, switches to `B:`, fetches `<app>/<app>.sub`, runs `submit <app>`, advances SuperSUB internally, and stops at the `MCP-TOOL-COMPLETED <APP>` marker.
+- Use `run_submit` for arbitrary submit files such as `BUILDALL.SUB`. Example: `{"submit":"buildall","timeout_seconds":10}`. If `fetch` is omitted it tries `<submit>.sub`, then `<submit>/<submit>.sub`.
+- Do not inspect the app files first just to discover the build command when the request is simply "test build <app>". Call `build_app` directly.
+- Use `run_cpm` only for manual CP/M inspection or debugging: `dir`, checking disk contents, running one-off commands, or recovering from an unusual failed build.
+- Use `reset` when the user wants a clean CP/M disk state without running a build.
+- Successful submit files should end with `mcpdone <app>`, which prints `MCP-TOOL-COMPLETED <APP>`.
+- `build_app` and `run_submit` include elapsed time in milliseconds in their final result line.
+- If `build_app` or `run_submit` reports `FAIL` or `INCOMPLETE`, summarize the failing command/output and then use `run_cpm` only if more diagnosis is needed.
+
 ## Terminal And Emulator Code
 
 The TFT VT100 display is 80 columns by 30 rows. CP/M apps should treat rows 1-30 as the drawable terminal area. Cursor positions are 1-based.

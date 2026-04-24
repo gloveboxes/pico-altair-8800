@@ -14,3 +14,4 @@ a:pip a:snake.com=snake.com
 
 era snake.*
 era dx*.*
+mcpdone snake
