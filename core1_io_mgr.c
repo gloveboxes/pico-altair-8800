@@ -28,6 +28,11 @@
 #include "FrontPanels/inky_display.h"
 #endif
 
+#ifdef VT100_DISPLAY
+#include "FrontPanels/vt100_display.h"
+#include "drivers/waveshare/ws_ili9488.h"
+#endif
+
 // Enable WiFi/WebSocket functionality only if board has WiFi capability
 #if defined(CYW43_WL_GPIO_LED_PIN)
 
@@ -92,6 +97,20 @@ static volatile bool pending_display_update = false;
 
 // External CPU reference for display updates
 extern intel8080_t cpu;
+#endif
+
+#ifdef VT100_DISPLAY
+#define VT100_UPDATE_INTERVAL_MS 50  // 20 Hz
+static struct repeating_timer vt100_update_timer;
+static volatile bool pending_vt100_update = false;
+extern intel8080_t cpu;
+
+static bool vt100_update_timer_callback(struct repeating_timer* t)
+{
+    (void)t;
+    pending_vt100_update = true;
+    return true;
+}
 #endif
 
 // Timer callback for output - fires every 20ms
@@ -313,6 +332,14 @@ static void websocket_console_core1_entry(void)
     printf("[Core1] Inky display initialized\n");
 #endif
 
+#ifdef VT100_DISPLAY
+    ws_ili9488_init();
+    vt100_init();
+    add_repeating_timer_ms(-VT100_UPDATE_INTERVAL_MS, vt100_update_timer_callback, NULL, &vt100_update_timer);
+    printf("[Core1] VT100 terminal display initialized (20 Hz refresh)\n");
+#endif
+
+#if !defined(VT100_DISPLAY)
 #ifdef DISPLAY_ST7789_SUPPORT
     add_repeating_timer_ms(-DISPLAY_UPDATE_INTERVAL_MS, display_update_timer_callback, NULL, &display_update_timer);
     printf("[Core1] Started display update timer (%dms interval, ~50 Hz)\n", DISPLAY_UPDATE_INTERVAL_MS);
@@ -328,6 +355,7 @@ static void websocket_console_core1_entry(void)
     ws_display_init_front_panel();
     printf("[Core1] Waveshare Virtual Front Panel initialized\n");
 #endif
+#endif /* !VT100_DISPLAY */
 
     // Initialize Wi-Fi on core 1
     wifi_init_result_t result = wifi_init();
@@ -362,6 +390,7 @@ static void websocket_console_core1_entry(void)
         console_initialized = true;
         printf("[Core1] WebSocket server running, entering poll loop\n");
 
+#ifndef VT100_DISPLAY
 #ifdef DISPLAY_ST7789_SUPPORT
         // Update display with WiFi info now that we're connected
         display_st7789_update(connected_ssid, ip_address_buffer);
@@ -372,6 +401,10 @@ static void websocket_console_core1_entry(void)
         ws_display_update_wifi(connected_ssid, ip_address_buffer);
         printf("[Core1] Waveshare display updated with WiFi info\n");
 #endif
+#else
+        vt100_set_ip(ip_address_buffer);
+        printf("[Core1] VT100 status bar updated with IP\n");
+#endif /* !VT100_DISPLAY */
 
         // Main poll loop - CYW43/lwIP is handled by background interrupt
         // with pico_cyw43_arch_lwip_threadsafe_background
@@ -386,6 +419,25 @@ static void websocket_console_core1_entry(void)
 #ifdef BLUETOOTH_KEYBOARD_SUPPORT
             bt_keyboard_poll();
 #endif
+#ifdef VT100_DISPLAY
+            /* Drain the VT100 output queue every iteration.
+             * Update the status bar and service the terminal on the 20 Hz timer. */
+            {
+                uint8_t vt_ch;
+                while (vt100_try_dequeue_output(&vt_ch)) {
+                    vt100_putchar(vt_ch);
+                }
+
+                if (pending_vt100_update) {
+                    pending_vt100_update = false;
+                    uint16_t sw = cpu.cpuStatus;
+                    if (cpu.registers.flags & FLAGS_IF)
+                        sw |= (1 << 9);
+                    vt100_update_status(cpu.address_bus, cpu.data_bus, sw);
+                    vt100_service();
+                }
+            }
+#else /* front panel mode */
 #ifdef DISPLAY_ST7789_SUPPORT
             update_display_if_pending(); // Update display if timer triggered
 #endif
@@ -393,11 +445,42 @@ static void websocket_console_core1_entry(void)
             update_display_if_pending(); // Update Waveshare display if timer triggered
             ws_display_poll();           // Progress async DMA queue/completion
 #endif
+#endif /* VT100_DISPLAY */
             tight_loop_contents();
         }
     }
     else if (result == WIFI_INIT_NO_CREDS || result == WIFI_INIT_CONNECT_FAIL)
     {
+#if defined(VT100_DISPLAY) && defined(BLUETOOTH_KEYBOARD_SUPPORT)
+        // VT100 + BT keyboard mode: WiFi failed but that's OK - continue
+        // without it. Power down WiFi radio to save power.
+        printf("[Core1] WiFi unavailable, continuing in BT-only mode\n");
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+        multicore_fifo_push_blocking(0);
+        vt100_set_ip("BT only");
+
+        // BT-only + VT100 display poll loop
+        while (true)
+        {
+            bt_keyboard_poll();
+            {
+                uint8_t vt_ch;
+                while (vt100_try_dequeue_output(&vt_ch)) {
+                    vt100_putchar(vt_ch);
+                }
+
+                if (pending_vt100_update) {
+                    pending_vt100_update = false;
+                    uint16_t sw = cpu.cpuStatus;
+                    if (cpu.registers.flags & FLAGS_IF)
+                        sw |= (1 << 9);
+                    vt100_update_status(cpu.address_bus, cpu.data_bus, sw);
+                    vt100_service();
+                }
+            }
+            tight_loop_contents();
+        }
+#else
         // Start captive portal in AP mode
         printf("[Core1] Starting captive portal for WiFi configuration...\n");
 
@@ -422,6 +505,7 @@ static void websocket_console_core1_entry(void)
             multicore_fifo_push_blocking(0);
             return;
         }
+#endif /* VT100_DISPLAY && BLUETOOTH_KEYBOARD_SUPPORT */
     }
     else
     {

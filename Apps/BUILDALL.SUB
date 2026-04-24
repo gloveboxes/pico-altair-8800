@@ -1,0 +1,108 @@
+; ========================================
+; BUILDALL - Compile all updated apps
+; ========================================
+
+; --- WEATHER ---
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
+ft -g file://sdk/dxterm.c
+ft -g file://sdk/dxterm.h
+ft -g file://sdk/dxsys.c
+ft -g file://sdk/dxsys.h
+ft -g file://sdk/long.c
+cc dxtimer
+cc dxterm
+cc dxsys
+cc long
+ft -g file://weather.c
+cc weather
+clink weather dxtimer dxterm dxsys long
+a:pip a:weather.com=weather.com
+era dx*.*
+era long.*
+era weather.c
+
+; --- BREAKOUT ---
+ft -g file://sdk/dxsys.c
+ft -g file://sdk/dxsys.h
+cc dxsys
+era dxsys.c
+era dxsys.h
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
+cc dxtimer
+era dxtimer.c
+era dxtimer.h
+ft -g file://sdk/dxterm.c
+ft -g file://sdk/dxterm.h
+cc dxterm
+era dxterm.c
+era dxterm.h
+ft -g file://breakout/breakout.c
+cc breakout
+clink breakout dxterm dxtimer dxsys
+a:pip a:breakout.com=breakout.com
+era dx*.*
+era breakout.*
+
+; --- CHAT ---
+ft -g file://chat/chat.c
+ft -g file://chat/chat.sys
+ft -g file://chat/chat.cfg
+ft -g file://chat/chatjson.c
+ft -g file://chat/chatjson.h
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
+ft -g file://sdk/dxterm.c
+ft -g file://sdk/dxterm.h
+cc dxterm
+cc dxtimer
+cc chatjson
+cc chat
+clink chat chatjson dxterm dxtimer
+a:pip a:chat.com=chat.com
+a:pip a:chat.sys=chat.sys
+a:pip a:chat.cfg=chat.cfg
+era chat.crl
+era chatjson.*
+era dx*.*
+
+; --- GAME ---
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
+ft -g file://sdk/dxterm.c
+ft -g file://sdk/dxterm.h
+ft -g file://sdk/dxsys.c
+ft -g file://sdk/dxsys.h
+cc dxterm
+cc dxtimer
+cc dxsys
+ft -g file://game/game.c
+cc game
+clink game dxtimer dxterm dxsys
+era dx*.*
+era game.c
+
+; --- ONBOARD ---
+ft -g file://sdk/dxtimer.c
+ft -g file://sdk/dxtimer.h
+cc dxtimer
+ft -g file://onboard/onboard.c
+cc onboard
+clink onboard dxtimer long
+a:pip a:onboard.com=onboard.com
+era onboard.*
+era dx*.*
+
+; --- ENV ---
+ft -g file://sdk/dxenv.c
+ft -g file://sdk/long.c
+ft -g file://env/env.c
+cc dxenv
+cc long
+cc env
+clink env dxenv long
+a:pip a:env.com=env.com
+era dxenv.*
+era long.*
+era env.c

@@ -1,0 +1,4 @@
+interface:
+  display_name: "BDS C"
+  short_description: "Write BDS C 1.6 code with VT100 color support."
+  default_prompt: "Use the BDS C skill to review or implement CP/M Altair C code, including VT100 terminal control and colors."

@@ -10,7 +10,7 @@
  * 2. Symbols (VERY IMPORTANT):
  *    - All symbol names (functions, variables, labels, statics, globals)
  *      must be unique in their first 7 characters
- *    - Prefer short, descriptive names, e.g. "x_delay", "x_tmrset"
+ *    - Prefer short, descriptive names, e.g. "x_delay", "x_tset"
  *    - Avoid underscores beyond the leading "x_" unless necessary
  *    - Do not exceed 7 characters for clarity and linker safety
  *
@@ -77,7 +77,7 @@ int g_clrbd()
     for (row = 2; row < BOARD_ROWS + 2; row++)
     {
         x_curmv(row, 2);
-        x_erseol();
+        x_ereol();
     }
 
     return 0;
@@ -195,21 +195,21 @@ main()
     /* Draw initial board */
     g_draw();
 
-    x_tmrset(0, 50); /* Set timer 0 for 50 ms */
+    x_tset(0, 50); /* Set timer 0 for 50 ms */
 
     while (1)
     {
         c = x_keyrd(); /* Read raw key code no waiting */
 
-        if (x_isesc(c) || x_isctrlc(c)) /* ESC or Ctrl-C to exit */
+        if (x_isesc(c) || x_iscc(c)) /* ESC or Ctrl-C to exit */
         {
             break;
         }
 
-        if (x_tmrexp(0) || chkdir(c, &direction))
+        if (x_texp(0) || chkdir(c, &direction))
         {
             upd_disp(&direction);
-            x_tmrset(0, 50); /* Reset timer 0 for another 50 ms */
+            x_tset(0, 50); /* Reset timer 0 for another 50 ms */
         }
     }
 

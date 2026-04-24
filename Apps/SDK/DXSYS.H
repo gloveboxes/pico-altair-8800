@@ -10,7 +10,7 @@
  * 2. Symbols (VERY IMPORTANT):
  *    - All symbol names (functions, variables, labels, statics, globals)
  *      must be unique in their first 7 characters
- *    - Prefer short, descriptive names, e.g. "x_delay", "x_tmrset"
+ *    - Prefer short, descriptive names, e.g. "x_delay", "x_tset"
  *    - Avoid underscores beyond the leading "x_" unless necessary
  *    - Do not exceed 7 characters for clarity and linker safety
  *
@@ -32,8 +32,8 @@
 
 unsigned x_rand(); /* Get random number */
 int x_altr();     /* Get Altair emulator version */
-int x_uptime();   /* Get system uptime */
-int x_cur_utc();  /* Get current UTC time */
+int x_uptm();     /* Get system uptime */
+int x_utc();      /* Get current UTC time */
 int x_local();    /* Get current local time */
 int x_temp();     /* Get PI Sense HAT temperature */
 int x_press();    /* Get PI Sense HAT pressure */

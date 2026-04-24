@@ -491,9 +491,9 @@ int ch_chat()
     while (1)
     {
         /* Show prompt */
-        x_setcol(XC_GRN);
+        x_setc(XC_GRN);
         printf("You: ");
-        x_rstcol();
+        x_rstc();
 
         /* Get user input - simple gets() */
         gets(input);
@@ -519,9 +519,9 @@ int ch_chat()
 
         /* Simulate API call */
         printf("\n");
-        x_setcol(XC_CYN);
+        x_setc(XC_CYN);
         printf("Assistant: \n");
-        x_rstcol();
+        x_rstc();
 
         ch_api();
 
@@ -617,9 +617,9 @@ int ch_show()
     printf("=== Message History ===\n\n");
 
     /* Show system message */
-    x_setcol(XC_YEL);
+    x_setc(XC_YEL);
     printf("System: %s\n\n", g_sysmsg);
-    x_rstcol();
+    x_rstc();
 
     /* Show messages */
     for (i = 0; i < g_msgcnt; i++)
@@ -627,11 +627,11 @@ int ch_show()
         switch (g_types[i])
         {
         case MSG_USR:
-            x_setcol(XC_GRN);
+            x_setc(XC_GRN);
             printf("You: ");
             break;
         case MSG_AST:
-            x_setcol(XC_CYN);
+            x_setc(XC_CYN);
             printf("Assistant: ");
             break;
         default:
@@ -642,7 +642,7 @@ int ch_show()
         if (g_mptr[i])
             ch_print(g_mptr[i]);
         printf("\n");
-        x_rstcol();
+        x_rstc();
     }
 
     printf("\n");
@@ -796,12 +796,12 @@ int echo;
                 {
                     if (ch == '\n')
                     {
-                        x_conout('\r');
-                        x_conout('\n');
+                        x_cout('\r');
+                        x_cout('\n');
                     }
                     else
                     {
-                        x_conout(ch);
+                        x_cout(ch);
                     }
                 }
 
@@ -916,8 +916,8 @@ char *text;
     while ((ch = *text++) != 0)
     {
         if (ch == '\n')
-            x_conout('\r');
-        x_conout(ch);
+            x_cout('\r');
+        x_cout(ch);
     }
     return 0;
 }

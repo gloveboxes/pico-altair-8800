@@ -15,9 +15,9 @@ int x_curmv(); /* int x_curmv(row, col); */
 int x_clrsc(); /* int x_clrsc(); */
 int x_hidcr(); /* int x_hidcr(); */
 int x_shwcr(); /* int x_shwcr(); */
-int x_setcol(); /* int x_setcol(code); */
-int x_rstcol(); /* int x_rstcol(); */
-int x_erseol(); /* int x_erseol(); */
+int x_setc();   /* int x_setc(code); */
+int x_rstc();   /* int x_rstc(); */
+int x_ereol();  /* int x_ereol(); */
 int x_keyrd(); /* int x_keyrd(); */
 int x_keyrd(); /* int x_keyrd(); */
 int x_isesc(); /* int x_isesc(code); */
@@ -114,13 +114,13 @@ main()
     /* Clean exit */
     x_clrsc();
     x_curmv(10, 30);
-    x_setcol(XC_BYEL);
+    x_setc(XC_BYEL);
     puts("Weather Station Terminated");
-    x_rstcol();
+    x_rstc();
     x_curmv(12, 35);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     puts("Thank you!");
-    x_rstcol();
+    x_rstc();
     x_shwcr();
 }
 
@@ -137,7 +137,7 @@ int row;
 
     /* Display keys row */
     x_curmv(row, 1);
-    x_setcol(XC_BLU);
+    x_setc(XC_BLU);
     col = 1;
     for (i = start; i < items; i++)
     {
@@ -146,11 +146,11 @@ int row;
         puts(data);
         col += 20; /* Fixed column spacing */
     }
-    x_rstcol();
+    x_rstc();
 
     /* Display values row */
     x_curmv(row + 1, 1);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     col = 1;
     for (i = start; i < items; i++)
     {
@@ -159,7 +159,7 @@ int row;
         puts(data);
         col += 20; /* Fixed column spacing */
     }
-    x_rstcol();
+    x_rstc();
 }
 
 /* Get data from Intel 8080 IO port */
@@ -206,52 +206,52 @@ void dr_layout()
 {
     /* Main title */
     x_curmv(1, 28);
-    x_setcol(XC_BYEL);
+    x_setc(XC_BYEL);
     puts("ALTAIR 8800 WEATHER STATION");
     x_curmv(1, 70);
-    x_setcol(XC_CYN);
+    x_setc(XC_CYN);
     puts("ESC=Exit");
-    x_rstcol();
+    x_rstc();
     
     /* Top border */
     x_curmv(3, 1);
-    x_setcol(XC_BLU);
+    x_setc(XC_BLU);
     puts("================================================================================");
-    x_rstcol();
+    x_rstc();
     
     /* Section headers */
     x_curmv(5, 1);
-    x_setcol(XC_CYN);
+    x_setc(XC_CYN);
     puts("=== LOCATION ===");
-    x_rstcol();
+    x_rstc();
     
     x_curmv(9, 1);
-    x_setcol(XC_YEL);
+    x_setc(XC_YEL);
     puts("=== CURRENT WEATHER ===");
-    x_rstcol();
+    x_rstc();
     
     x_curmv(13, 1);
-    x_setcol(XC_MAG);
+    x_setc(XC_MAG);
     puts("=== AIR QUALITY ===");
-    x_rstcol();
+    x_rstc();
     
     /* Bottom border */
     x_curmv(19, 1);
-    x_setcol(XC_BLU);
+    x_setc(XC_BLU);
     puts("================================================================================");
-    x_rstcol();
+    x_rstc();
     
     /* Static footer text */
     x_curmv(20, 1);
-    x_setcol(XC_GRN);
+    x_setc(XC_GRN);
     puts("Data published to MQTT Broker");
     x_curmv(20, 35);
-    x_setcol(XC_CYN);
+    x_setc(XC_CYN);
     puts("Press ESC to exit");
     x_curmv(20, 55);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     puts("Next update:");
-    x_rstcol();
+    x_rstc();
 }
 
 /* Update header data only */
@@ -278,7 +278,7 @@ void up_head(reading, buffer) char *reading; char *buffer;
     strcat(output, getport(43, 0, buffer, 50));
     disp_at(2, 50, XC_GRN, output);
     
-    x_rstcol();
+    x_rstc();
 }
 
 /* Update location data only */
@@ -311,7 +311,7 @@ void up_loc()
     strcat(output, "        ");
     disp_at(7, 40, XC_WHT, output);
     
-    x_rstcol();
+    x_rstc();
 }
 
 /* Update weather data only */
@@ -363,7 +363,7 @@ void up_wthr()
     strcat(output, "          ");
     disp_at(11, 55, XC_WHT, output);
     
-    x_rstcol();
+    x_rstc();
 }
 
 /* Update air quality data only */
@@ -375,12 +375,12 @@ void up_air()
     
     /* AQI needs special color handling */
     x_curmv(14, 1);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     puts("  AQI: ");
     clean_num(getport(p_value, 0, buffer, 50), clean, 50);
-    x_setcol(aqi_col(clean));
+    x_setc(aqi_col(clean));
     puts(clean);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     puts("    ");
     
     /* Build CO string */
@@ -431,7 +431,7 @@ void up_air()
     strcat(output, clean);
     disp_at(18, 25, XC_WHT, output);
     
-    x_rstcol();
+    x_rstc();
 }
 
 /* Draw the header section with title and status */
@@ -439,12 +439,12 @@ void dr_head(reading, buffer) char *reading; char *buffer;
 {
     /* Main title */
     x_curmv(1, 28);
-    x_setcol(XC_BYEL);
+    x_setc(XC_BYEL);
     puts("ALTAIR 8800 WEATHER STATION");
     x_curmv(1, 70);
-    x_setcol(XC_CYN);
+    x_setc(XC_CYN);
     puts("ESC=Exit");
-    x_rstcol();
+    x_rstc();
     
     /* Status line */
     char temp[50];
@@ -465,13 +465,13 @@ void dr_head(reading, buffer) char *reading; char *buffer;
     strcpy(output, "Time: ");
     strcat(output, getport(43, 0, buffer, 50));
     disp_at(2, 50, XC_GRN, output);
-    x_rstcol();
+    x_rstc();
     
     /* Top border */
     x_curmv(3, 1);
-    x_setcol(XC_BLU);
+    x_setc(XC_BLU);
     puts("================================================================================");
-    x_rstcol();
+    x_rstc();
 }
 
 /* Draw location information section */
@@ -480,13 +480,13 @@ void dr_loc()
     char buffer[50];
     
     x_curmv(5, 1);
-    x_setcol(XC_CYN);
+    x_setc(XC_CYN);
     puts("=== LOCATION ===");
-    x_rstcol();
+    x_rstc();
     
     /* Location data in a clean format */
     x_curmv(6, 1);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     puts("  Latitude: ");
     puts(getport(l_value, 0, buffer, 50));
     
@@ -501,7 +501,7 @@ void dr_loc()
     x_curmv(7, 40);
     puts("City: ");
     puts(getport(l_value, 3, buffer, 50));
-    x_rstcol();
+    x_rstc();
 }
 
 /* Draw weather information section */
@@ -511,13 +511,13 @@ void dr_wthr()
     char clean[50];
     
     x_curmv(9, 1);
-    x_setcol(XC_YEL);
+    x_setc(XC_YEL);
     puts("=== CURRENT WEATHER ===");
-    x_rstcol();
+    x_rstc();
     
     /* Weather data in clean format */
     x_curmv(10, 1);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     puts("  Temperature: ");
     clean_num(getport(w_value, 0, buffer, 50), clean, 50);
     puts(clean);
@@ -551,7 +551,7 @@ void dr_wthr()
     puts("Conditions: ");
     clean_num(getport(w_value, 5, buffer, 50), clean, 50);
     puts(clean);
-    x_rstcol();
+    x_rstc();
 }
 
 /* Draw air quality section */
@@ -561,18 +561,18 @@ void dr_air()
     char clean[50];
     
     x_curmv(13, 1);
-    x_setcol(XC_MAG);
+    x_setc(XC_MAG);
     puts("=== AIR QUALITY ===");
-    x_rstcol();
+    x_rstc();
     
     /* AQI and main pollutants */
     x_curmv(14, 1);
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     puts("  AQI: ");
     /* Color-code AQI value based on air quality level */
-    x_setcol(aqi_col(getport(p_value, 0, buffer, 50)));
+    x_setc(aqi_col(getport(p_value, 0, buffer, 50)));
     puts(getport(p_value, 0, buffer, 50));
-    x_setcol(XC_WHT);
+    x_setc(XC_WHT);
     
     char output[100];
     
@@ -623,7 +623,7 @@ void dr_air()
     clean_num(getport(p_value, 8, buffer, 50), clean, 50);
     strcat(output, clean);
     disp_at(18, 25, XC_WHT, output);
-    x_rstcol();
+    x_rstc();
 }
 
 /* Update countdown only - returns 1 if ESC pressed */
@@ -639,19 +639,19 @@ int dr_foot()
             key = x_keyrd();
             if (x_isesc(key)) {
                 x_curmv(21, 1);
-                x_setcol(XC_YEL);
+                x_setc(XC_YEL);
                 puts("Exiting Weather Station...");
-                x_rstcol();
+                x_rstc();
                 return 1; /* Signal to exit */
             }
         }
         
         /* Update countdown display */
         x_curmv(20, 68);
-        x_setcol(XC_WHT);
+        x_setc(XC_WHT);
         x_numpr(i);
         puts("s  ");
-        x_rstcol();
+        x_rstc();
         x_delay(0, 1000); /* 1 second delay using timer 0 */
     }
     return 0; /* Continue running */
@@ -662,7 +662,7 @@ void disp_at(row, col, color, text)
 int row; int col; int color; char *text;
 {
     x_curmv(row, col);
-    x_setcol(color);
+    x_setc(color);
     puts(text);
 }
 

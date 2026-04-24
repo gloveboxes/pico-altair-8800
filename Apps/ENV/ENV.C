@@ -33,7 +33,7 @@ int e_del();
 int e_list();
 int e_count();
 int e_clear();
-int e_exists();
+int e_exst();
 
 /* LONG library function declarations (32-bit math) */
 char *atol();   /* char *atol(result, s) - ascii to long */
@@ -369,7 +369,7 @@ char *argv[];
         }
         
         /* Only set if not already defined */
-        if (e_exists(lkey)) {
+        if (e_exst(lkey)) {
             printf("%s already defined\r\n", lkey);
             return 0;
         }

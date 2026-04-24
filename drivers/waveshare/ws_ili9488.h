@@ -65,6 +65,11 @@ void ws_ili9488_wait(void);
 void ws_ili9488_text(const char* s, int x, int y, ws_color_t fg, ws_color_t bg);
 void ws_ili9488_text_2x(const char* s, int x, int y, ws_color_t fg, ws_color_t bg);
 
+/* ---- Hardware scroll ---- */
+
+void ws_ili9488_set_scroll_area(uint16_t tfa, uint16_t vsa, uint16_t bfa);
+void ws_ili9488_set_scroll_start(uint16_t vsp);
+
 /* ---- Stats ---- */
 void ws_ili9488_get_stats(uint64_t* updates, uint64_t* dma_completions);
 

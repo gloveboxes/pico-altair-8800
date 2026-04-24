@@ -16,6 +16,11 @@
 #define ASCII_MASK_7BIT 0x7F
 #define CTRL_KEY(ch) ((ch) & 0x1F)
 
+#ifndef BT_KEYBOARD_VERBOSE
+#define BT_KEYBOARD_VERBOSE 0
+#endif
+#define BT_LOG(...) do { if (BT_KEYBOARD_VERBOSE) printf(__VA_ARGS__); } while (0)
+
 #define BT_KEYBOARD_INPUT_QUEUE_DEPTH 64
 #define BT_KEYBOARD_COMMAND_QUEUE_DEPTH 8
 #define BT_KEYBOARD_HID_DESCRIPTOR_STORAGE_SIZE 768
@@ -71,6 +76,7 @@ static bool bt_keyboard_scan_after_disconnect = false;
 static volatile bool bt_keyboard_store_pending = false;
 
 static btstack_timer_source_t bt_keyboard_reconnect_timer;
+static btstack_timer_source_t bt_keyboard_connect_timer;
 static btstack_packet_callback_registration_t bt_keyboard_hci_event_registration;
 static btstack_packet_callback_registration_t bt_keyboard_sm_event_registration;
 
@@ -147,7 +153,7 @@ static void bt_keyboard_load_bonded_peer(void)
     btstack_tlv_get_instance(&bt_keyboard_tlv_impl, &bt_keyboard_tlv_context);
     if (!bt_keyboard_tlv_impl)
     {
-        printf("Bluetooth keyboard: TLV not available, cannot load bond.\n");
+        BT_LOG("Bluetooth keyboard: TLV not available, cannot load bond.\n");
         bt_keyboard_has_bonded_peer = false;
         return;
     }
@@ -158,12 +164,12 @@ static void bt_keyboard_load_bonded_peer(void)
 
     if (bt_keyboard_has_bonded_peer)
     {
-        printf("Bluetooth keyboard: loaded bond for %s (type=%d).\n",
+        BT_LOG("Bluetooth keyboard: loaded bond for %s (type=%d).\n",
                bd_addr_to_str(bt_keyboard_peer.addr), bt_keyboard_peer.addr_type);
     }
     else
     {
-        printf("Bluetooth keyboard: no stored bond found (read %d bytes, expected %d).\n",
+        BT_LOG("Bluetooth keyboard: no stored bond found (read %d bytes, expected %d).\n",
                stored_len, (int)sizeof(bt_keyboard_peer));
     }
 }
@@ -176,7 +182,7 @@ static void bt_keyboard_store_bonded_peer(void)
     }
     if (!bt_keyboard_tlv_impl)
     {
-        printf("Bluetooth keyboard: TLV not available, cannot store bond.\n");
+        BT_LOG("Bluetooth keyboard: TLV not available, cannot store bond.\n");
         return;
     }
 
@@ -190,7 +196,7 @@ static void bt_keyboard_store_bonded_peer(void)
                                              (uint8_t*)&verify, sizeof(verify));
     if (vlen == (int)sizeof(verify) && memcmp(&verify, &bt_keyboard_peer, sizeof(verify)) == 0)
     {
-        printf("Bluetooth keyboard: bond stored for %s.\n", bd_addr_to_str(bt_keyboard_peer.addr));
+        BT_LOG("Bluetooth keyboard: bond stored for %s.\n", bd_addr_to_str(bt_keyboard_peer.addr));
     }
     else
     {
@@ -229,6 +235,39 @@ static void bt_keyboard_schedule_reconnect(uint32_t timeout_ms)
     btstack_run_loop_add_timer(&bt_keyboard_reconnect_timer);
 }
 
+static void bt_keyboard_connect_timeout(btstack_timer_source_t* timer)
+{
+    (void)timer;
+    if (bt_keyboard_state == BT_KEYBOARD_STATE_CONNECTING)
+    {
+        BT_LOG("Bluetooth keyboard: connection attempt timed out, cancelling.\n");
+        gap_connect_cancel();
+        bt_keyboard_state = BT_KEYBOARD_STATE_IDLE;
+
+        if (bt_keyboard_has_bonded_peer && !bt_keyboard_manual_pair_requested && !bt_keyboard_manual_disconnect_requested)
+        {
+            BT_LOG("Bluetooth keyboard: will retry in 5s.\n");
+            bt_keyboard_schedule_reconnect(5000);
+        }
+    }
+}
+
+static void bt_keyboard_start_connect_timer(void)
+{
+    btstack_run_loop_set_timer(&bt_keyboard_connect_timer, 10000);
+    btstack_run_loop_set_timer_handler(&bt_keyboard_connect_timer, bt_keyboard_connect_timeout);
+    btstack_run_loop_add_timer(&bt_keyboard_connect_timer);
+}
+
+static void bt_keyboard_cancel_pending_connection(void)
+{
+    btstack_run_loop_remove_timer(&bt_keyboard_connect_timer);
+    if (bt_keyboard_state == BT_KEYBOARD_STATE_CONNECTING)
+    {
+        gap_connect_cancel();
+    }
+}
+
 static void bt_keyboard_connect_stored_peer(void)
 {
     if (!bt_keyboard_stack_ready || !bt_keyboard_has_bonded_peer)
@@ -237,9 +276,10 @@ static void bt_keyboard_connect_stored_peer(void)
         return;
     }
 
-    printf("Bluetooth keyboard: connecting to bonded device %s...\n", bd_addr_to_str(bt_keyboard_peer.addr));
+    BT_LOG("Bluetooth keyboard: connecting to bonded BLE device %s...\n", bd_addr_to_str(bt_keyboard_peer.addr));
     bt_keyboard_state = BT_KEYBOARD_STATE_CONNECTING;
     gap_connect(bt_keyboard_peer.addr, bt_keyboard_peer.addr_type);
+    bt_keyboard_start_connect_timer();
 }
 
 static btstack_timer_source_t bt_keyboard_scan_timer;
@@ -251,7 +291,7 @@ static void bt_keyboard_scan_timeout(btstack_timer_source_t* timer)
     {
         gap_stop_scan();
         bt_keyboard_state = BT_KEYBOARD_STATE_IDLE;
-        printf("Bluetooth keyboard: scan timed out, no HID keyboard found.\n");
+        BT_LOG("Bluetooth keyboard: scan timed out, no HID keyboard found.\n");
     }
 }
 
@@ -263,8 +303,11 @@ static void bt_keyboard_start_scan(void)
         return;
     }
 
+    // Cancel any in-flight connection attempt before scanning
+    bt_keyboard_cancel_pending_connection();
+
     memset(bt_keyboard_name, 0, sizeof(bt_keyboard_name));
-    printf("Bluetooth keyboard: scanning for BLE HID keyboards...\n");
+    BT_LOG("Bluetooth keyboard: scanning for BLE HID keyboards...\n");
     printf("Put the keyboard into pairing mode now.\n");
     bt_keyboard_state = BT_KEYBOARD_STATE_SCANNING;
     gap_set_scan_parameters(0, 48, 48);
@@ -280,6 +323,10 @@ static uint8_t bt_keyboard_translate_usage(uint8_t usage, bool shift, bool ctrl)
 {
     if (ctrl && usage >= 0x04 && usage <= 0x1d)
     {
+        /* Ctrl+M (usage 0x10) → byte 28 (0x1C) to toggle CPU monitor,
+         * matching the web terminal's Ctrl+M mapping.
+         * Without this, Ctrl+M = 0x0D = Enter (indistinguishable). */
+        if (usage == 0x10) return 28;
         return (uint8_t)CTRL_KEY((char)('A' + (usage - 0x04)));
     }
 
@@ -308,7 +355,8 @@ static uint8_t bt_keyboard_translate_usage(uint8_t usage, bool shift, bool ctrl)
     return 0xff;
 }
 
-static void bt_keyboard_handle_input_report(uint8_t service_index, const uint8_t* report, uint16_t report_len)
+static void bt_keyboard_handle_input_report(const uint8_t* descriptor_data, uint16_t descriptor_len,
+                                            const uint8_t* report, uint16_t report_len)
 {
     if (report_len < 1)
     {
@@ -316,8 +364,7 @@ static void bt_keyboard_handle_input_report(uint8_t service_index, const uint8_t
     }
 
     btstack_hid_parser_t parser;
-    btstack_hid_parser_init(&parser, hids_client_descriptor_storage_get_descriptor_data(bt_keyboard_hids_cid, service_index),
-                            hids_client_descriptor_storage_get_descriptor_len(bt_keyboard_hids_cid, service_index),
+    btstack_hid_parser_init(&parser, descriptor_data, descriptor_len,
                             HID_REPORT_TYPE_INPUT, report, report_len);
 
     bool shift = false;
@@ -434,14 +481,19 @@ static void bt_keyboard_handle_gatt_event(uint8_t packet_type, uint16_t channel,
             bt_keyboard_hids_cid = 0;
             memset(bt_keyboard_last_keys, 0, sizeof(bt_keyboard_last_keys));
             btstack_run_loop_remove_timer(&bt_keyboard_reconnect_timer);
-            printf("Bluetooth keyboard: HID service disconnected.\n");
+            BT_LOG("Bluetooth keyboard: HID service disconnected.\n");
             break;
 
         case GATTSERVICE_SUBEVENT_HID_REPORT:
-            bt_keyboard_handle_input_report(gattservice_subevent_hid_report_get_service_index(packet),
-                                            gattservice_subevent_hid_report_get_report(packet),
-                                            gattservice_subevent_hid_report_get_report_len(packet));
+        {
+            uint8_t si = gattservice_subevent_hid_report_get_service_index(packet);
+            bt_keyboard_handle_input_report(
+                hids_client_descriptor_storage_get_descriptor_data(bt_keyboard_hids_cid, si),
+                hids_client_descriptor_storage_get_descriptor_len(bt_keyboard_hids_cid, si),
+                gattservice_subevent_hid_report_get_report(packet),
+                gattservice_subevent_hid_report_get_report_len(packet));
             break;
+        }
 
         default:
             break;
@@ -468,7 +520,7 @@ static void bt_keyboard_packet_handler(uint8_t packet_type, uint16_t channel, ui
 
             bt_keyboard_stack_ready = true;
             bt_keyboard_load_bonded_peer();
-            printf("Bluetooth keyboard: stack ready.\n");
+            BT_LOG("Bluetooth keyboard: stack ready.\n");
 
             if (bt_keyboard_has_bonded_peer)
             {
@@ -501,12 +553,13 @@ static void bt_keyboard_packet_handler(uint8_t packet_type, uint16_t channel, ui
             bt_keyboard_peer.addr_type = gap_event_advertising_report_get_address_type(packet);
             bt_keyboard_copy_name_from_advertisement(packet);
             bt_keyboard_state = BT_KEYBOARD_STATE_CONNECTING;
-            printf("Bluetooth keyboard: found %s%s%s at %s, connecting...\n",
+            BT_LOG("Bluetooth keyboard: found %s%s%s at %s, connecting...\n",
                    bt_keyboard_name[0] != '\0' ? "'" : "",
                    bt_keyboard_name[0] != '\0' ? bt_keyboard_name : "HID keyboard",
                    bt_keyboard_name[0] != '\0' ? "'" : "",
                    bd_addr_to_str(bt_keyboard_peer.addr));
             gap_connect(bt_keyboard_peer.addr, bt_keyboard_peer.addr_type);
+            bt_keyboard_start_connect_timer();
             break;
 
         case HCI_EVENT_META_GAP:
@@ -515,9 +568,10 @@ static void bt_keyboard_packet_handler(uint8_t packet_type, uint16_t channel, ui
                 return;
             }
 
+            btstack_run_loop_remove_timer(&bt_keyboard_connect_timer);
             bt_keyboard_connection_handle = gap_subevent_le_connection_complete_get_connection_handle(packet);
             bt_keyboard_state = BT_KEYBOARD_STATE_PAIRING;
-            printf("Bluetooth keyboard: link established, requesting pairing...\n");
+            BT_LOG("Bluetooth keyboard: link established, requesting pairing...\n");
             sm_request_pairing(bt_keyboard_connection_handle);
             break;
 
@@ -529,7 +583,7 @@ static void bt_keyboard_packet_handler(uint8_t packet_type, uint16_t channel, ui
             bt_keyboard_hids_cid = 0;
             memset(bt_keyboard_last_keys, 0, sizeof(bt_keyboard_last_keys));
 
-            printf("Bluetooth keyboard: link disconnected (reason=0x%02x).\n", reason);
+            BT_LOG("Bluetooth keyboard: link disconnected (reason=0x%02x).\n", reason);
 
             if (bt_keyboard_scan_after_disconnect)
             {
@@ -539,7 +593,7 @@ static void bt_keyboard_packet_handler(uint8_t packet_type, uint16_t channel, ui
             else if (bt_keyboard_has_bonded_peer && !bt_keyboard_manual_pair_requested && !bt_keyboard_manual_disconnect_requested)
             {
                 bt_keyboard_state = BT_KEYBOARD_STATE_IDLE;
-                printf("Bluetooth keyboard: disconnected, retrying bonded device.\n");
+                BT_LOG("Bluetooth keyboard: disconnected, retrying bonded device.\n");
                 bt_keyboard_schedule_reconnect(2000);
             }
             else
@@ -569,12 +623,12 @@ static void bt_keyboard_sm_packet_handler(uint8_t packet_type, uint16_t channel,
     switch (hci_event_packet_get_type(packet))
     {
         case SM_EVENT_JUST_WORKS_REQUEST:
-            printf("Bluetooth keyboard: Just Works pairing requested, accepting.\n");
+            BT_LOG("Bluetooth keyboard: Just Works pairing requested, accepting.\n");
             sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
             break;
 
         case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
-            printf("Bluetooth keyboard: numeric comparison %" PRIu32 ", accepting.\n",
+            BT_LOG("Bluetooth keyboard: numeric comparison %" PRIu32 ", accepting.\n",
                    sm_event_numeric_comparison_request_get_passkey(packet));
             sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
             break;
@@ -587,7 +641,7 @@ static void bt_keyboard_sm_packet_handler(uint8_t packet_type, uint16_t channel,
         case SM_EVENT_PAIRING_COMPLETE:
             if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS)
             {
-                printf("Bluetooth keyboard: pairing complete.\n");
+                BT_LOG("Bluetooth keyboard: pairing complete.\n");
                 connect_to_hid = true;
             }
             else
@@ -601,7 +655,7 @@ static void bt_keyboard_sm_packet_handler(uint8_t packet_type, uint16_t channel,
         case SM_EVENT_REENCRYPTION_COMPLETE:
             if (sm_event_reencryption_complete_get_status(packet) == ERROR_CODE_SUCCESS)
             {
-                printf("Bluetooth keyboard: re-encryption complete.\n");
+                BT_LOG("Bluetooth keyboard: re-encryption complete.\n");
                 connect_to_hid = true;
             }
             else
@@ -690,6 +744,7 @@ void bt_keyboard_init(void)
     }
     att_server_init(att_db_util_get_address(), NULL, NULL);
 
+    // BLE HID client
     hids_client_init(bt_keyboard_hid_descriptor_storage, sizeof(bt_keyboard_hid_descriptor_storage));
 
     // Connection parameters tuned for a HID keyboard:
@@ -703,7 +758,7 @@ void bt_keyboard_init(void)
     bt_keyboard_sm_event_registration.callback = bt_keyboard_sm_packet_handler;
     sm_add_event_handler(&bt_keyboard_sm_event_registration);
 
-    printf("Bluetooth keyboard: enabling LE HID host support...\n");
+    printf("Bluetooth keyboard: enabling BLE HID support...\n");
     hci_power_control(HCI_POWER_ON);
 }
 
@@ -768,6 +823,7 @@ void bt_keyboard_poll(void)
                     bt_keyboard_state = BT_KEYBOARD_STATE_IDLE;
                 }
                 break;
+
         }
     }
 }

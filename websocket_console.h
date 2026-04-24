@@ -25,8 +25,22 @@ void websocket_console_enqueue_output(uint8_t value);
 // Try to dequeue a byte received from WebSocket clients (called from core 0).
 bool websocket_console_try_dequeue_input(uint8_t* value);
 
+// Check whether a WebSocket client is currently connected.
+bool websocket_console_has_client(void);
+
 // Try to dequeue a byte received from the CPU monitor input queue (called from core 0).
 bool websocket_console_try_dequeue_monitor_input(uint8_t* value);
+
+// Enqueue a byte to the CPU monitor input queue (called from core 1).
+void websocket_console_enqueue_monitor_input(uint8_t value);
+
+// Enqueue a byte to the terminal input queue (called from core 1, e.g. BT keyboard).
+void websocket_console_enqueue_input(uint8_t value);
+
+// Route a single input byte: handle Ctrl+M toggle, \n→\r, and
+// dispatch to the correct queue based on CPU mode.
+// Used by both WebSocket and BT keyboard input paths.
+void websocket_console_route_input(uint8_t ch);
 
 // Check if the console is running and Wi-Fi is connected.
 bool websocket_console_is_running(void);
@@ -67,3 +81,7 @@ bool websocket_console_handle_input(const uint8_t* payload, size_t payload_len, 
 size_t websocket_console_supply_output(uint8_t* buffer, size_t max_len, void* user_data);
 void websocket_console_on_client_connected(void* user_data);
 void websocket_console_on_client_disconnected(void* user_data);
+
+#ifdef VT100_DISPLAY
+bool vt100_try_dequeue_output(uint8_t* value);
+#endif

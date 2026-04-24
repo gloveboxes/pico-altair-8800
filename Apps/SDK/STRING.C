@@ -1,6 +1,6 @@
 #include "string.h"
 
-char *memcpy_bds(dest, src, n)
+char *memcpy(dest, src, n)
 register char *dest;
 register char *src;
 unsigned n;
@@ -15,7 +15,7 @@ unsigned n;
     return orig;
 }
 
-char *memmove_bds(dest, src, n)
+char *memmove(dest, src, n)
 register char *dest;
 register char *src;
 unsigned n;
@@ -43,7 +43,7 @@ unsigned n;
     return orig;
 }
 
-char *memset_bds(s, c, n)
+char *memset(s, c, n)
 register char *s;
 char c;
 unsigned n;
@@ -58,7 +58,7 @@ unsigned n;
     return orig;
 }
 
-int memcmp_bds(s1, s2, n)
+int memcmp(s1, s2, n)
 register char *s1;
 register char *s2;
 unsigned n;
@@ -81,7 +81,7 @@ unsigned n;
     return 0;
 }
 
-char *memchr_bds(s, c, n)
+char *memchr(s, c, n)
 register char *s;
 int c;
 unsigned n;
@@ -100,7 +100,7 @@ unsigned n;
     return 0;
 }
 
-unsigned strlen_bds(s)
+unsigned strlen(s)
 register char *s;
 {
     register char *p;
@@ -113,7 +113,7 @@ register char *s;
     return p - s;
 }
 
-char *strcpy_bds(dest, src)
+char *strcpy(dest, src)
 register char *dest;
 register char *src;
 {
@@ -127,7 +127,7 @@ register char *src;
     return orig;
 }
 
-char *strncpy_bds(dest, src, n)
+char *strncpy(dest, src, n)
 register char *dest;
 register char *src;
 unsigned n;
@@ -149,7 +149,7 @@ unsigned n;
     return orig;
 }
 
-char *strcat_bds(dest, src)
+char *strcat(dest, src)
 register char *dest;
 register char *src;
 {
@@ -169,7 +169,7 @@ register char *src;
     return orig;
 }
 
-char *strncat_bds(dest, src, n)
+char *strncat(dest, src, n)
 register char *dest;
 register char *src;
 unsigned n;
@@ -195,7 +195,7 @@ unsigned n;
     return orig;
 }
 
-int strcmp_bds(s1, s2)
+int strcmp(s1, s2)
 register char *s1;
 register char *s2;
 {
@@ -208,7 +208,7 @@ register char *s2;
     return (*s1 & 0xFF) - (*s2 & 0xFF);
 }
 
-int strncmp_bds(s1, s2, n)
+int strncmp(s1, s2, n)
 register char *s1;
 register char *s2;
 unsigned n;
@@ -233,7 +233,7 @@ unsigned n;
     return 0;
 }
 
-char *strchr_bds(s, c)
+char *strchr(s, c)
 register char *s;
 char c;
 {
@@ -250,7 +250,7 @@ char c;
     return 0;
 }
 
-char *strrchr_bds(s, c)
+char *strrchr(s, c)
 register char *s;
 char c;
 {
@@ -267,21 +267,21 @@ char c;
     return last;
 }
 
-char *strstr_bds(haystack, needle)
-register char *haystack;
+char *strstr(hay, needle)
+register char *hay;
 register char *needle;
 {
     char *h;
     char *n;
 
     if (*needle == '\0')
-        return haystack;
+        return hay;
 
-    while (*haystack)
+    while (*hay)
     {
-        if (*haystack == *needle)
+        if (*hay == *needle)
         {
-            h = haystack;
+            h = hay;
             n = needle;
             while (*n && *h == *n)
             {
@@ -289,9 +289,9 @@ register char *needle;
                 n++;
             }
             if (*n == '\0')
-                return haystack;
+                return hay;
         }
-        haystack++;
+        hay++;
     }
 
     return 0;

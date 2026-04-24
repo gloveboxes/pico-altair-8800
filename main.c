@@ -82,6 +82,10 @@ void client_connected_cb(void)
     cpu_state_set_mode(CPU_RUNNING);
 }
 
+#if defined(VT100_DISPLAY) && defined(BLUETOOTH_KEYBOARD_SUPPORT)
+static bool auto_started = false;
+#endif
+
 // Reset function for CPU monitor
 void altair_reset(void)
 {
@@ -158,6 +162,16 @@ static uint8_t process_ansi_sequence(uint8_t ch)
                     pending_key = (uint8_t)CTRL_KEY('G'); // Delete -> Ctrl-G
                     key_state = KEY_STATE_ESC_BRACKET_NUM;
                     return 0x00;
+                case '5':
+                    // Page Up sends ESC[5~ - need to consume the tilde
+                    pending_key = (uint8_t)CTRL_KEY('R'); // Page Up -> Ctrl-R
+                    key_state = KEY_STATE_ESC_BRACKET_NUM;
+                    return 0x00;
+                case '6':
+                    // Page Down sends ESC[6~ - need to consume the tilde
+                    pending_key = (uint8_t)CTRL_KEY('V'); // Page Down -> Ctrl-V
+                    key_state = KEY_STATE_ESC_BRACKET_NUM;
+                    return 0x00;
                 default:
                     key_state = KEY_STATE_NORMAL;
                     return 0x00; // Ignore other sequences
@@ -180,24 +194,51 @@ static uint8_t process_ansi_sequence(uint8_t ch)
     return 0x00;
 }
 
+static uint8_t terminal_postprocess(uint8_t ch)
+{
+    ch &= ASCII_MASK_7BIT;
+    if (ch == 28)
+    {
+        cpu_state_toggle_mode();
+        return 0x00;
+    }
+    if (ch == '\n')
+    {
+        return '\r';
+    }
+    return ch;
+}
+
 // Terminal read function - non-blocking
 static uint8_t terminal_read(void)
 {
 
 #if defined(CYW43_WL_GPIO_LED_PIN)
+    // Input priority is WebSocket client, then BLE keyboard, then USB serial.
     uint8_t ws_ch = 0;
-    if (websocket_console_try_dequeue_input(&ws_ch))
+    if (websocket_console_has_client() && websocket_console_try_dequeue_input(&ws_ch))
     {
-        return (uint8_t)(ws_ch & ASCII_MASK_7BIT);
+        return terminal_postprocess(ws_ch);
     }
 
 #if defined(BLUETOOTH_KEYBOARD_SUPPORT)
     uint8_t bt_ch = 0;
     if (bt_keyboard_try_dequeue_input(&bt_ch))
     {
-        return (uint8_t)(bt_ch & ASCII_MASK_7BIT);
+        return terminal_postprocess(bt_ch);
     }
 #endif
+
+    // Fall back to USB serial if neither higher-priority source has input.
+    if (stdio_usb_connected())
+    {
+        int c = getchar_timeout_us(0);
+        if (c != PICO_ERROR_TIMEOUT)
+        {
+            uint8_t ch = process_ansi_sequence((uint8_t)(c & ASCII_MASK_7BIT));
+            return terminal_postprocess(ch);
+        }
+    }
 
     return 0x00;
 #else
@@ -208,7 +249,8 @@ static uint8_t terminal_read(void)
     }
 
     uint8_t ch = (uint8_t)(c & ASCII_MASK_7BIT);
-    return process_ansi_sequence(ch);
+    ch = process_ansi_sequence(ch);
+    return terminal_postprocess(ch);
 #endif
 }
 
@@ -218,6 +260,11 @@ static void terminal_write(uint8_t c)
     c &= ASCII_MASK_7BIT; // Take first 7 bits only
 #if defined(CYW43_WL_GPIO_LED_PIN)
     websocket_console_enqueue_output(c);
+    // Mirror output to USB serial if connected
+    if (stdio_usb_connected())
+    {
+        putchar(c);
+    }
 #else
     putchar(c);
 #endif
@@ -236,24 +283,28 @@ static void setup_wifi(void)
     if (config_exists())
     {
         printf("\nWiFi credentials found in flash storage.\n");
-        printf("Press 'C' within 5 seconds to clear config and enter AP mode...\n");
         
-        absolute_time_t start_time = get_absolute_time();
-        while (absolute_time_diff_us(start_time, get_absolute_time()) < 5000000)
+        if (stdio_usb_connected())
         {
-            int c = getchar_timeout_us(100000); // Check every 100ms
-            if (c == 'C' || c == 'c')
+            printf("Press 'C' within 5 seconds to clear config and enter AP mode...\n");
+            
+            absolute_time_t start_time = get_absolute_time();
+            while (absolute_time_diff_us(start_time, get_absolute_time()) < 5000000)
             {
-                printf("\nClearing WiFi configuration...\n");
-                config_clear();
-                printf("Config cleared. Rebooting into AP mode...\n");
-                sleep_ms(1000);
-                // Reboot the device
-                watchdog_enable(1, 1);
-                while (1) tight_loop_contents();
+                int c = getchar_timeout_us(100000); // Check every 100ms
+                if (c == 'C' || c == 'c')
+                {
+                    printf("\nClearing WiFi configuration...\n");
+                    config_clear();
+                    printf("Config cleared. Rebooting into AP mode...\n");
+                    sleep_ms(1000);
+                    // Reboot the device
+                    watchdog_enable(1, 1);
+                    while (1) tight_loop_contents();
+                }
             }
+            printf("\n");
         }
-        printf("\n");
     }
     else
     {
@@ -379,7 +430,7 @@ static void maybe_run_bluetooth_keyboard_shell(void)
     }
 
     printf("\nBluetooth keyboard manager\n");
-    printf("  P - pair with the first BLE HID keyboard found\n");
+    printf("  P - pair with BLE keyboard\n");
     printf("  U - clear stored Bluetooth bond\n");
     printf("  D - disconnect current keyboard\n");
     printf("  S - show status\n");
@@ -387,10 +438,23 @@ static void maybe_run_bluetooth_keyboard_shell(void)
 
     for (;;)
     {
+        // Auto-exit once a BLE keyboard connects (the shell reads from
+        // USB stdio, so BLE keyboard input can't reach us here).
+        if (bt_keyboard_is_connected())
+        {
+            printf("Keyboard connected, continuing boot.\n\n");
+            return;
+        }
+
         printf("bt> ");
         int cmd = PICO_ERROR_TIMEOUT;
         while (cmd == PICO_ERROR_TIMEOUT)
         {
+            if (bt_keyboard_is_connected())
+            {
+                printf("\nKeyboard connected, continuing boot.\n\n");
+                return;
+            }
             cmd = getchar_timeout_us(100000);
         }
 
@@ -403,7 +467,7 @@ static void maybe_run_bluetooth_keyboard_shell(void)
         {
             case 'P':
             case 'p':
-                printf("Starting keyboard pairing flow...\n");
+                printf("Starting BLE keyboard pairing flow...\n");
                 printf("Select an empty Bluetooth slot on the keyboard, then hold the pairing key.\n");
                 bt_keyboard_request_pairing();
                 break;
@@ -687,7 +751,7 @@ int main(void)
     // RP2350: 0x20082000 - 0x20000000 = 520 KB
     uint32_t total_ram = SRAM_END - SRAM_BASE;
     uint32_t used_ram = total_ram - heap_free;
-    uint32_t flash_used = (uint32_t)&__flash_binary_end;
+    uint32_t flash_used = (uint32_t)&__flash_binary_end - XIP_BASE;
 
     // SDK provides PICO_FLASH_SIZE_BYTES based on board configuration
 #ifndef PICO_FLASH_SIZE_BYTES
@@ -724,6 +788,16 @@ int main(void)
 
     // ============================================
 
+#if defined(VT100_DISPLAY) && defined(BLUETOOTH_KEYBOARD_SUPPORT)
+    // With VT100 display + BT keyboard, start emulator immediately
+    // instead of waiting for a WebSocket client to connect.
+    if (!auto_started) {
+        auto_started = true;
+        cpu_state_set_mode(CPU_RUNNING);
+        printf("Auto-starting emulator (VT100 + BT keyboard mode)\n");
+    }
+#endif
+
     // Main emulation loop - core 0 dedicated to CPU emulation
     // Main emulation loop - core 0 dedicated to CPU emulation
     for (;;)
@@ -743,11 +817,39 @@ int main(void)
                 break;
             case CPU_STOPPED:
             {
+                bool handled = false;
                 uint8_t ch = 0;
                 if (websocket_console_try_dequeue_monitor_input(&ch))
                 {
-                    // Process monitor input character
                     process_control_panel_commands_char(ch);
+                    handled = true;
+                }
+
+#if defined(BLUETOOTH_KEYBOARD_SUPPORT)
+                if (!handled && bt_keyboard_try_dequeue_input(&ch))
+                {
+                    uint8_t filtered = terminal_postprocess(ch);
+                    handled = true;
+                    if (filtered != 0x00)
+                    {
+                        process_control_panel_commands_char(filtered);
+                    }
+                }
+#endif
+
+                // Check USB serial last for monitor commands.
+                if (!handled && stdio_usb_connected())
+                {
+                    int c = getchar_timeout_us(0);
+                    if (c != PICO_ERROR_TIMEOUT)
+                    {
+                        uint8_t sc = process_ansi_sequence((uint8_t)(c & ASCII_MASK_7BIT));
+                        sc = terminal_postprocess(sc);
+                        if (sc != 0x00)
+                        {
+                            process_control_panel_commands_char(sc);
+                        }
+                    }
                 }
             }
             break;

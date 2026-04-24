@@ -58,8 +58,8 @@ int init_display();
 
 /* Timer library functions */
 int x_delay();
-int x_tmrset();
-int x_tmrexp();
+int x_tset();
+int x_texp();
 
 /* I/O port functions */
 int bdos(), bios(), inp(), outp();
@@ -115,8 +115,8 @@ int main()
         cputs("Status: Monitoring continuously... (5 sec delay)");
 
         /* Sleep using timer library with keyboard checking */
-        x_tmrset(TIMER_ID, DELAY_MS); /* Start timer with configured delay */
-        while (x_tmract(TIMER_ID) && !quit_requested)
+        x_tset(TIMER_ID, DELAY_MS); /* Start timer with configured delay */
+        while (x_tact(TIMER_ID) && !quit_requested)
         {
             /* Check for keypress during sleep */
             if (check_key_ready())

@@ -10,7 +10,7 @@
  * 2. Symbols (VERY IMPORTANT):
  *    - All symbol names (functions, variables, labels, statics, globals)
  *      must be unique in their first 7 characters
- *    - Prefer short, descriptive names, e.g. "x_delay", "x_tmrset"
+ *    - Prefer short, descriptive names, e.g. "x_delay", "x_tset"
  *    - Avoid underscores beyond the leading "x_" unless necessary
  *    - Do not exceed 7 characters for clarity and linker safety
  *
@@ -41,16 +41,16 @@ int x_curmv(row, col); /* Move cursor to row,col */
 int x_clrsc();         /* Clear screen and reset attributes */
 int x_hidcr();         /* Hide cursor */
 int x_shwcr();         /* Show cursor */
-int x_erseol();        /* Erase from cursor to end of line */
+int x_ereol();         /* Erase from cursor to end of line */
 
 /* Keyboard input functions */
 int x_conin(); /* Console input is available wait */
-int x_conout(code); /* Console output */
+int x_cout(code);   /* Console output */
 int x_keyrd(); /* Read raw key code no waiting */
 
 /* Key code test functions */
 int x_isesc(code);   /* Test if code is ESC */
-int x_isctrlc(code); /* Test if code is Ctrl-C */
+int x_iscc(code);    /* Test if code is Ctrl-C */
 int x_isup(code);    /* Test if code is Up arrow */
 int x_isdn(code);    /* Test if code is Down arrow */
 int x_islt(code);    /* Test if code is Left arrow */
@@ -58,12 +58,12 @@ int x_isrt(code);    /* Test if code is Right arrow */
 int x_isspc(code);   /* Test if code is Space */
 
 /* Color and attribute functions */
-int x_setcol(); /* Set foreground color */
-int x_rstcol(); /* Reset all attributes */
+int x_setc();   /* Set foreground color */
+int x_rstc();   /* Reset all attributes */
 
 /* Terminal key codes for Altair environment */
 #define XK_ESC 27
-#define XK_CTRL_C 3
+#define XK_CC 3
 #define XK_UP 5
 #define XK_DN 24
 #define XK_LT 19

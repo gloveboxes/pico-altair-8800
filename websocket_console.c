@@ -22,6 +22,11 @@
 #define WS_TX_QUEUE_DEPTH 512
 #define MONITOR_QUEUE_DEPTH 16
 
+#ifdef VT100_DISPLAY
+#define VT100_TX_QUEUE_DEPTH 2048
+static queue_t vt100_tx_queue;
+#endif
+
 static queue_t ws_rx_queue;
 static queue_t ws_tx_queue;
 static queue_t monitor_queue;
@@ -80,6 +85,9 @@ void websocket_queue_init(void)
     queue_init(&ws_tx_queue, sizeof(uint8_t), WS_TX_QUEUE_DEPTH);
     queue_init(&ws_rx_queue, sizeof(uint8_t), WS_RX_QUEUE_DEPTH);
     queue_init(&monitor_queue, sizeof(uint8_t), MONITOR_QUEUE_DEPTH);
+#ifdef VT100_DISPLAY
+    queue_init(&vt100_tx_queue, sizeof(uint8_t), VT100_TX_QUEUE_DEPTH);
+#endif
 }
 
 /**
@@ -117,10 +125,15 @@ void websocket_console_enqueue_output(uint8_t value)
     if (!ws_has_active_clients())
     {
         websocket_console_clear_tx_buffer();
-        return;
+    }
+    else
+    {
+        queue_add_blocking(&ws_tx_queue, &value);
     }
 
-    queue_add_blocking(&ws_tx_queue, &value);
+#ifdef VT100_DISPLAY
+    queue_add_blocking(&vt100_tx_queue, &value);
+#endif
 }
 
 /**
@@ -136,80 +149,58 @@ bool websocket_console_try_dequeue_input(uint8_t* value)
     return queue_try_remove(&ws_rx_queue, value);
 }
 
+bool websocket_console_has_client(void)
+{
+    return ws_has_active_clients();
+}
+
 bool websocket_console_try_dequeue_monitor_input(uint8_t* value)
 {
     return queue_try_remove(&monitor_queue, value);
 }
 
-/**
- * @brief Handles incoming WebSocket input data.
- *
- * Processes bytes received from WebSocket clients with CPU monitor support.
- * - Detects CTRL-M (ASCII 28) to toggle CPU mode
- * - In CPU_RUNNING mode: queues input directly to RX queue
- * - In CPU_STOPPED mode: accumulates input in command buffer until '\r'
- * Converts newline characters (\n) to carriage returns (\r).
- *
- * @param payload Pointer to incoming data bytes
- * @param payload_len Number of bytes in the payload
- * @param user_data User-defined context (unused)
- * @return true if processing succeeded, false if payload is NULL
- */
+void websocket_console_enqueue_monitor_input(uint8_t value)
+{
+    if (!queue_try_add(&monitor_queue, &value))
+    {
+        uint8_t discard = 0;
+        queue_try_remove(&monitor_queue, &discard);
+        queue_try_add(&monitor_queue, &value);
+    }
+}
+
+void websocket_console_enqueue_input(uint8_t value)
+{
+    if (!queue_try_add(&ws_rx_queue, &value))
+    {
+        uint8_t discard = 0;
+        queue_try_remove(&ws_rx_queue, &discard);
+        queue_try_add(&ws_rx_queue, &value);
+    }
+}
+
+void websocket_console_route_input(uint8_t ch)
+{
+    if (ch == 28) {
+        cpu_state_toggle_mode();
+        return;
+    }
+    if (ch == '\n') ch = '\r';
+    if (cpu_state_get_mode() == CPU_STOPPED) {
+        websocket_console_enqueue_monitor_input(ch);
+    } else {
+        websocket_console_enqueue_input(ch);
+    }
+}
+
 bool websocket_console_handle_input(const uint8_t* payload, size_t payload_len, void* user_data)
 {
     (void)user_data;
+    if (!payload || payload_len == 0) return false;
 
-    if (!payload || payload_len == 0)
-    {
-        return false;
+    for (size_t i = 0; i < payload_len; ++i) {
+        websocket_console_route_input(payload[i]);
     }
-
-    // Check for CTRL-M (ASCII 28) - toggle CPU mode
-    // The web terminal is configured to send 28 for CTRL-M to distinguish it from Enter (13)
-    if (payload[0] == 28)
-    {
-        CPU_OPERATING_MODE new_mode = cpu_state_toggle_mode();
-        return true;
-    }
-
-    CPU_OPERATING_MODE cpu_mode = cpu_state_get_mode();
-
-    for (size_t i = 0; i < payload_len; ++i)
-    {
-        uint8_t ch = payload[i];
-        if (ch == '\n')
-        {
-            ch = '\r';
-        }
-
-        switch (cpu_mode)
-        {
-            case CPU_RUNNING:
-                if (!queue_try_add(&ws_rx_queue, &ch))
-                {
-                    uint8_t discard = 0;
-                    if (queue_try_remove(&ws_rx_queue, &discard))
-                    {
-                        queue_try_add(&ws_rx_queue, &ch);
-                    }
-                }
-                break;
-
-            case CPU_STOPPED:
-                if (!queue_try_add(&monitor_queue, &ch))
-                {
-                    uint8_t discard = 0;
-                    if (queue_try_remove(&monitor_queue, &discard))
-                    {
-                        queue_try_add(&monitor_queue, &ch);
-                    }
-                }
-                break;
-            default:
-                break;
-        }
-    }
-
     return true;
 }
 
@@ -273,6 +264,13 @@ size_t websocket_console_supply_output(uint8_t* buffer, size_t max_len, void* us
     return websocket_console_tx_pop(buffer, max_len);
 }
 
+#ifdef VT100_DISPLAY
+bool vt100_try_dequeue_output(uint8_t* value)
+{
+    return queue_try_remove(&vt100_tx_queue, value);
+}
+#endif
+
 #else // No WiFi capability
 
 /**
@@ -304,6 +302,11 @@ void websocket_console_enqueue_output(uint8_t value)
 bool websocket_console_try_dequeue_input(uint8_t* value)
 {
     (void)value;
+    return false;
+}
+
+bool websocket_console_has_client(void)
+{
     return false;
 }
 

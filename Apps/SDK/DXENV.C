@@ -11,7 +11,7 @@
  * 2. Symbols (VERY IMPORTANT):
  *    - All symbol names (functions, variables, labels, statics, globals)
  *      must be unique in their first 7 characters
- *    - Prefer short, descriptive names, e.g. "x_delay", "x_tmrset"
+ *    - Prefer short, descriptive names, e.g. "x_delay", "x_tset"
  *    - Avoid underscores beyond the leading "x_" unless necessary
  *    - Do not exceed 7 characters for clarity and linker safety
  *
@@ -48,15 +48,15 @@
 
 /* Constants */
 #define E_FNAME "A:ALTAIR.ENV"
-#define E_MAXREC 16       /* Max records supported */
+#define E_MAXR   16       /* Max records supported */
 #define E_KEYSZ  16       /* Key size (15 chars + null) */
 #define E_VALSZ  111      /* Value size (110 chars + null) */
 #define E_RECSZ  128      /* Record size = 1 sector */
 
 /* Status flags */
 #define E_EMPTY  0x00
-#define E_ACTIVE 0x01
-#define E_DELETE 0xFF
+#define E_ACTV   0x01
+#define E_DEL    0xFF
 
 /* Return codes */
 #define E_OK     0
@@ -81,10 +81,10 @@ int c;
 }
 
 /* ------------------------------------------------------------
- * e_cmpkey - Compare two keys (case-insensitive)
+ * e_cmpk - Compare two keys (case-insensitive)
  * Returns 0 if equal, non-zero otherwise
  * ------------------------------------------------------------ */
-int e_cmpkey(k1, k2)
+int e_cmpk(k1, k2)
 char *k1;
 char *k2;
 {
@@ -99,9 +99,9 @@ char *k2;
 }
 
 /* ------------------------------------------------------------
- * e_cpystr - Copy string with length limit
+ * e_cpys - Copy string with length limit
  * ------------------------------------------------------------ */
-int e_cpystr(dst, src, maxlen)
+int e_cpys(dst, src, maxlen)
 char *dst;
 char *src;
 int maxlen;
@@ -114,9 +114,9 @@ int maxlen;
 }
 
 /* ------------------------------------------------------------
- * e_clrbuf - Clear record buffer
+ * e_clrb - Clear record buffer
  * ------------------------------------------------------------ */
-int e_clrbuf()
+int e_clrb()
 {
     int i;
     for (i = 0; i < E_RECSZ; i++)
@@ -163,19 +163,19 @@ char *key;
     if (fd == ERROR)
         return -1;
     
-    for (slot = 0; slot < E_MAXREC; slot++) {
+    for (slot = 0; slot < E_MAXR; slot++) {
         if (seek(fd, slot, 0) == ERROR)
             break;
         if (read(fd, e_buf, 1) != 1)
             break;
         
         /* Check if active record */
-        if (e_buf[0] != E_ACTIVE)
+        if (e_buf[0] != E_ACTV)
             continue;
         
         /* Extract and compare key */
-        e_cpystr(tkey, &e_buf[1], E_KEYSZ);
-        if (e_cmpkey(tkey, key) == 0) {
+        e_cpys(tkey, &e_buf[1], E_KEYSZ);
+        if (e_cmpk(tkey, key) == 0) {
             close(fd);
             return slot;
         }
@@ -197,7 +197,7 @@ int e_slots()
     if (fd == ERROR)
         return -1;
     
-    for (slot = 0; slot < E_MAXREC; slot++) {
+    for (slot = 0; slot < E_MAXR; slot++) {
         if (seek(fd, slot, 0) == ERROR) {
             close(fd);
             return slot;  /* Past EOF, use this slot */
@@ -207,7 +207,7 @@ int e_slots()
             return slot;  /* Read failed, use this slot */
         }
         
-        if (e_buf[0] == E_EMPTY || e_buf[0] == E_DELETE) {
+        if (e_buf[0] == E_EMPTY || e_buf[0] == E_DEL) {
             close(fd);
             return slot;
         }
@@ -234,7 +234,7 @@ char *val;
     }
     
     /* e_buf already loaded by e_find */
-    e_cpystr(val, &e_buf[17], E_VALSZ);
+    e_cpys(val, &e_buf[17], E_VALSZ);
     return E_OK;
 }
 
@@ -251,8 +251,8 @@ char *val;
     char lval[E_VALSZ];
     
     /* Copy key/val to local buffers first (avoid global overlap) */
-    e_cpystr(lkey, key, E_KEYSZ);
-    e_cpystr(lval, val, E_VALSZ);
+    e_cpys(lkey, key, E_KEYSZ);
+    e_cpys(lval, val, E_VALSZ);
     
     /* Check if key exists */
     slot = e_find(lkey);
@@ -264,10 +264,10 @@ char *val;
     }
     
     /* Build record */
-    e_clrbuf();
-    e_buf[0] = E_ACTIVE;
-    e_cpystr(&e_buf[1], lkey, E_KEYSZ);
-    e_cpystr(&e_buf[17], lval, E_VALSZ);
+    e_clrb();
+    e_buf[0] = E_ACTV;
+    e_cpys(&e_buf[1], lkey, E_KEYSZ);
+    e_cpys(&e_buf[17], lval, E_VALSZ);
     
     /* Write record */
     fd = open(E_FNAME, 2);
@@ -305,7 +305,7 @@ char *key;
         return E_ENOTF;
     
     /* Mark as deleted */
-    e_buf[0] = E_DELETE;
+    e_buf[0] = E_DEL;
     
     fd = open(E_FNAME, 2);
     if (fd == ERROR)
@@ -342,15 +342,15 @@ int (*cb)();
         return 0;
     
     cnt = 0;
-    for (slot = 0; slot < E_MAXREC; slot++) {
+    for (slot = 0; slot < E_MAXR; slot++) {
         if (seek(fd, slot, 0) == ERROR)
             break;
         if (read(fd, e_buf, 1) != 1)
             break;
         
-        if (e_buf[0] == E_ACTIVE) {
-            e_cpystr(tkey, &e_buf[1], E_KEYSZ);
-            e_cpystr(tval, &e_buf[17], E_VALSZ);
+        if (e_buf[0] == E_ACTV) {
+            e_cpys(tkey, &e_buf[1], E_KEYSZ);
+            e_cpys(tval, &e_buf[17], E_VALSZ);
             if (cb)
                 (*cb)(tkey, tval);
             cnt++;
@@ -374,13 +374,13 @@ int e_count()
         return 0;
     
     cnt = 0;
-    for (slot = 0; slot < E_MAXREC; slot++) {
+    for (slot = 0; slot < E_MAXR; slot++) {
         if (seek(fd, slot, 0) == ERROR)
             break;
         if (read(fd, e_buf, 1) != 1)
             break;
         
-        if (e_buf[0] == E_ACTIVE)
+        if (e_buf[0] == E_ACTV)
             cnt++;
     }
     
@@ -408,10 +408,10 @@ int e_clear()
 }
 
 /* ------------------------------------------------------------
- * e_exists - Check if key exists
+ * e_exst - Check if key exists
  * Returns 1 if exists, 0 if not
  * ------------------------------------------------------------ */
-int e_exists(key)
+int e_exst(key)
 char *key;
 {
     int slot;

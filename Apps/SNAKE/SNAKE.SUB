@@ -1,5 +1,3 @@
-ft -g file://sdk/dxtimer.c
-ft -g file://sdk/dxtimer.h
 ft -g file://sdk/dxterm.c
 ft -g file://sdk/dxterm.h
 ft -g file://sdk/dxsys.h
@@ -8,10 +6,9 @@ ft -g file://sdk/dxsys.C
 ft -g file://snake/snake.c
 
 cc dxsys
-cc dxtimer
 cc dxterm
 cc snake
-clink snake dxterm dxtimer dxsys
+clink snake dxterm dxsys
 
 a:pip a:snake.com=snake.com
 
