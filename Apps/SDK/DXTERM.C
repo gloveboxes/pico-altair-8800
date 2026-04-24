@@ -96,12 +96,12 @@ int x_shwcr()
     return 0;
 }
 
-int x_conin() /* Console input is available wait */
+int x_conin() /* Read one char from console (blocking) */
 {
     return (bdos(1) & 0xFF);
 }
 
-int x_cout(code) /* Console output */
+int x_cout(code) /* Write one char to console */
 int code;
 {
     return bdos(2, code);
@@ -195,5 +195,51 @@ int x_rstc()
 int x_ereol()
 {
     printf("\033[K");
+    return 0;
+}
+
+/* x_csav() - Save cursor position. */
+int x_csav()
+{
+    printf("\033[s");
+    return 0;
+}
+
+/* x_crst() - Restore cursor position. */
+int x_crst()
+{
+    printf("\033[u");
+    return 0;
+}
+
+/* x_cup(n) - Move cursor up n rows. */
+int x_cup(n)
+int n;
+{
+    printf("\033[%dA", n);
+    return 0;
+}
+
+/* x_cdn(n) - Move cursor down n rows. */
+int x_cdn(n)
+int n;
+{
+    printf("\033[%dB", n);
+    return 0;
+}
+
+/* x_crt(n) - Move cursor right n columns. */
+int x_crt(n)
+int n;
+{
+    printf("\033[%dC", n);
+    return 0;
+}
+
+/* x_clt(n) - Move cursor left n columns. */
+int x_clt(n)
+int n;
+{
+    printf("\033[%dD", n);
     return 0;
 }

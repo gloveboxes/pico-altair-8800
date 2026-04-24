@@ -42,11 +42,19 @@ int x_clrsc();         /* Clear screen and reset attributes */
 int x_hidcr();         /* Hide cursor */
 int x_shwcr();         /* Show cursor */
 int x_ereol();         /* Erase from cursor to end of line */
+int x_csav();          /* Save cursor position */
+int x_crst();          /* Restore cursor position */
+int x_cup(n);          /* Move cursor up n rows */
+int x_cdn(n);          /* Move cursor down n rows */
+int x_clt(n);          /* Move cursor left n cols */
+int x_crt(n);          /* Move cursor right n cols */
 
 /* Keyboard input functions */
-int x_conin(); /* Console input is available wait */
-int x_cout(code);   /* Console output */
-int x_keyrd(); /* Read raw key code no waiting */
+int x_conin(); /* Read one char from console (blocking) */
+int x_cout(code);   /* Write one char to console */
+int x_keyrd(); /* Read key code (non-blocking, 0 if none) */
+int x_keyck(); /* Check if key is waiting (non-zero=yes) */
+int x_keygt(); /* Get waiting key or 0 if none */
 
 /* Key code test functions */
 int x_isesc(code);   /* Test if code is ESC */
@@ -58,8 +66,8 @@ int x_isrt(code);    /* Test if code is Right arrow */
 int x_isspc(code);   /* Test if code is Space */
 
 /* Color and attribute functions */
-int x_setc();   /* Set foreground color */
-int x_rstc();   /* Reset all attributes */
+int x_setc();   /* Emit ESC[Nm for any SGR code (fg, bg, attr) */
+int x_rstc();   /* Reset all attributes (ESC[0m) */
 
 /* Terminal key codes for Altair environment */
 #define XK_ESC 27
@@ -70,7 +78,38 @@ int x_rstc();   /* Reset all attributes */
 #define XK_RT 4
 #define XK_SPC 32
 
-/* Standard ANSI color codes for xterm.js */
+/* Standard ANSI color codes for xterm.js
+ *
+ * Use x_setc(code) to emit any SGR code (foreground, background, or attribute).
+ * Use x_rstc() to reset all attributes.
+ *
+ * Normal palette (TFT VT100 renderer):
+ *   0: black     fg 30  bg 40    8: bright black  fg 90  bg 100
+ *   1: red       fg 31  bg 41    9: bright red    fg 91  bg 101
+ *   2: green     fg 32  bg 42   10: bright green  fg 92  bg 102
+ *   3: yellow    fg 33  bg 43   11: bright yellow fg 93  bg 103
+ *   4: blue      fg 34  bg 44   12: bright blue   fg 94  bg 104
+ *   5: magenta   fg 35  bg 45   13: bright magenta fg 95 bg 105
+ *   6: cyan      fg 36  bg 46   14: bright cyan   fg 96  bg 106
+ *   7: white     fg 37  bg 47   15: bright white  fg 97  bg 107
+ *
+ * Useful attributes:
+ *   ESC[0m  - Reset all (fg 7, bg 0)
+ *   ESC[1m  - Bold/bright foreground
+ *   ESC[7m  - Reverse video
+ *   ESC[22m - Normal intensity
+ *   ESC[39m - Reset foreground only
+ *   ESC[49m - Reset background only
+ *   Combine: ESC[1;33m = bright yellow, ESC[37;44m = white on blue
+ *
+ * xterm 256-color (approximated to 16-color on TFT):
+ *   Foreground: ESC[38;5;Nm   Background: ESC[48;5;Nm
+ *   Prefer 16-color codes for consistent rendering across TFT and xterm.js.
+ *
+ * For colored blocks: print spaces with background color (e.g. bg 41-47,
+ * 100-107), two spaces per cell for squarer pixels. Always reset before
+ * normal text and before exiting.
+ */
 #define XC_BLK 30  /* Black */
 #define XC_RED 31  /* Red */
 #define XC_GRN 32  /* Green */

@@ -21,10 +21,10 @@
 
 #define SCRW 80
 #define SCRH 30
-#define MINR 2
+#define MINR 3
 #define MAXR 30
-#define MINC 1
-#define MAXC 80
+#define MINC 3
+#define MAXC 78
 
 #define BRS 8
 #define BCS 13
@@ -211,6 +211,16 @@ int c;
     return 0;
 }
 
+/* cbg(r,c) - Checker color for the board border. */
+int cbg(r, c)
+int r;
+int c;
+{
+    if (((r / 2) + (c / 2)) & 1)
+        return 100;
+    return 107;
+}
+
 /* keygt() - Read one key if ready. */
 int keygt()
 {
@@ -230,6 +240,39 @@ int drstat()
     curmv(1, 50);
     cput("LIFE:");
     nump(lives);
+    rst();
+    return 0;
+}
+
+/* brdr() - Draw the checked board border. */
+int brdr()
+{
+    int r;
+    int c;
+
+    for (c = 0; c < SCRW; c += 2)
+    {
+        bg(cbg(0, c / 2));
+        curmv(2, c + 1);
+        chout(' ');
+        chout(' ');
+        bg(cbg(SCRH - 1, c / 2));
+        curmv(SCRH, c + 1);
+        chout(' ');
+        chout(' ');
+    }
+
+    for (r = 3; r < SCRH; r++)
+    {
+        bg(cbg(r - 2, 0));
+        curmv(r, 1);
+        chout(' ');
+        chout(' ');
+        bg(cbg(r - 2, (SCRW / 2) - 1));
+        curmv(r, SCRW - 1);
+        chout(' ');
+        chout(' ');
+    }
     rst();
     return 0;
 }
@@ -380,10 +423,15 @@ int drpad()
 int msg(s)
 char *s;
 {
+    int i;
+
+    rst();
+    curmv(23, MINC);
+    for (i = MINC; i <= MAXC; i++)
+        chout(' ');
     col(37);
     curmv(23, 20);
     cput(s);
-    eol();
     rst();
     return 0;
 }
@@ -391,8 +439,12 @@ char *s;
 /* clrmsg() - Clear message row. */
 int clrmsg()
 {
-    curmv(23, 1);
-    eol();
+    int i;
+
+    rst();
+    curmv(23, MINC);
+    for (i = MINC; i <= MAXC; i++)
+        chout(' ');
     return 0;
 }
 
@@ -625,6 +677,7 @@ int frame()
     clrs();
     hid();
     drstat();
+    brdr();
     drall();
     return 0;
 }
@@ -652,8 +705,7 @@ int main()
         }
     }
 
-    curmv(23, 20);
-    eol();
+    clrmsg();
     if (state == DONE)
         msg("YOU CLEARED THE WALL");
     else if (state == LOSE)
