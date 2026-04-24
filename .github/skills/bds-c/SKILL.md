@@ -74,7 +74,7 @@ Common output sequences:
 - Save/restore cursor: `"\033[s"` and `"\033[u"`.
 - Move relative: `"\033[A"`, `"\033[B"`, `"\033[C"`, `"\033[D"` with an optional numeric prefix.
 
-The TFT VT100 display is 80 columns by 30 rows. The bottom hardware status bar is outside the terminal grid, so CP/M apps should treat rows 1-30 as the drawable terminal area.
+The TFT VT100 display is 80 columns by 30 rows. CP/M apps should treat rows 1-30 as the drawable terminal area.
 
 ### ANSI Color
 
