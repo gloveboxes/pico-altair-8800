@@ -1,31 +1,18 @@
-#define _POSIX_C_SOURCE 200809L
-#ifdef __APPLE__
-#define _DARWIN_C_SOURCE
-#endif
-
 #include "Altair8800/intel8080.h"
 #include "Altair8800/memory.h"
 #include "PortDrivers/host_files_io.h"
 #include "ansi_input.h"
+#include "host_platform.h"
 #include "io_ports.h"
 #include "PortDrivers/time_io.h"
 #include "universal_88dcdd.h"
 
-#include <errno.h>
-#include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <termios.h>
-#include <time.h>
-#include <unistd.h>
-#ifdef __APPLE__
-#include <pthread.h>
-#include <sys/qos.h>
-#endif
 
 #define ASCII_MASK_7BIT 0x7f
 
@@ -34,9 +21,6 @@
 #endif
 
 static intel8080_t cpu;
-static struct termios saved_termios;
-static int saved_stdin_flags = -1;
-static bool terminal_configured = false;
 static volatile sig_atomic_t keep_running = 1;
 
 static const char *drive_a_path = LOCAL_RUNNER_REPO_ROOT "/Disks/cpm63k.dsk";
@@ -44,112 +28,31 @@ static const char *drive_b_path = LOCAL_RUNNER_REPO_ROOT "/Disks/bdsc-v1.60.dsk"
 static const char *drive_c_path = LOCAL_RUNNER_REPO_ROOT "/Disks/blank.dsk";
 static const char *apps_root_path = LOCAL_RUNNER_REPO_ROOT "/Apps";
 
-static uint32_t monotonic_ms(void)
-{
-    struct timespec now;
-
-    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
-    {
-        return 0;
-    }
-
-    return (uint32_t)((now.tv_sec * 1000u) + (now.tv_nsec / 1000000u));
-}
-
-static void restore_terminal(void)
-{
-    if (!terminal_configured)
-    {
-        return;
-    }
-
-    tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios);
-    if (saved_stdin_flags >= 0)
-    {
-        fcntl(STDIN_FILENO, F_SETFL, saved_stdin_flags);
-    }
-    terminal_configured = false;
-}
-
 static void handle_signal(int signum)
 {
     (void)signum;
     keep_running = 0;
 }
 
-static void prefer_efficiency_core(void)
-{
-#ifdef __APPLE__
-    int rc;
-
-    rc = pthread_set_qos_class_self_np(QOS_CLASS_BACKGROUND, 0);
-    if (rc != 0)
-    {
-        fprintf(stderr, "altair-local: failed to set utility QoS (%d)\n", rc);
-    }
-#endif
-}
-
-static bool configure_terminal(void)
-{
-    struct termios raw;
-
-    if (!isatty(STDIN_FILENO))
-    {
-        return true;
-    }
-
-    if (tcgetattr(STDIN_FILENO, &saved_termios) != 0)
-    {
-        perror("tcgetattr");
-        return false;
-    }
-
-    raw = saved_termios;
-    raw.c_iflag &= (tcflag_t)~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    raw.c_oflag &= (tcflag_t)~(OPOST);
-    raw.c_cflag |= CS8;
-    raw.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
-    raw.c_cc[VMIN] = 0;
-    raw.c_cc[VTIME] = 0;
-
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0)
-    {
-        perror("tcsetattr");
-        return false;
-    }
-
-    saved_stdin_flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-    if (saved_stdin_flags < 0 || fcntl(STDIN_FILENO, F_SETFL, saved_stdin_flags | O_NONBLOCK) != 0)
-    {
-        perror("fcntl");
-        restore_terminal();
-        return false;
-    }
-
-    terminal_configured = true;
-    atexit(restore_terminal);
-    return true;
-}
-
 static uint8_t terminal_read(void)
 {
-    unsigned char ch;
-    ssize_t n;
+    int raw_ch;
+    uint8_t ch;
 
-    n = read(STDIN_FILENO, &ch, 1);
-    if (n <= 0)
+    raw_ch = host_terminal_read_byte();
+    if (raw_ch < 0)
     {
-        return ansi_input_process(0x00, monotonic_ms());
+        return ansi_input_process(0x00, host_monotonic_ms());
     }
 
+    ch = (uint8_t)raw_ch;
     ch &= ASCII_MASK_7BIT;
     if (ch == 0x1d)
     {
         keep_running = 0;
         return 0x00;
     }
-    ch = ansi_input_process(ch, monotonic_ms());
+    ch = ansi_input_process(ch, host_monotonic_ms());
     if (ch == '\n')
     {
         return '\r';
@@ -161,7 +64,7 @@ static void terminal_write(uint8_t c)
 {
     unsigned char ch = (unsigned char)(c & ASCII_MASK_7BIT);
 
-    if (write(STDOUT_FILENO, &ch, 1) < 0 && errno != EAGAIN)
+    if (!host_terminal_write_byte(ch))
     {
         keep_running = 0;
     }
@@ -234,15 +137,16 @@ int main(int argc, char **argv)
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    if (!configure_terminal())
+    if (!host_terminal_configure())
     {
         return 1;
     }
-    prefer_efficiency_core();
+    atexit(host_terminal_restore);
+    host_prefer_efficiency_core();
 
     if (!host_disk_init(drive_a_path, drive_b_path, drive_c_path))
     {
-        restore_terminal();
+        host_terminal_restore();
         fprintf(stderr, "altair-local: failed to open disk images\n");
         fprintf(stderr, "  A: %s\n  B: %s\n  C: %s\n", drive_a_path, drive_b_path, drive_c_path);
         return 1;
@@ -263,6 +167,6 @@ int main(int argc, char **argv)
     }
 
     host_disk_close();
-    restore_terminal();
+    host_terminal_restore();
     return 0;
 }

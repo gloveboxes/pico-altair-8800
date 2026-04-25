@@ -9,11 +9,45 @@ cmake -S local_altair -B local_altair/build
 cmake --build local_altair/build
 ```
 
+Windows native MSVC build from a "Developer PowerShell for VS" prompt:
+
+```powershell
+cmake -S local_altair -B local_altair/build-msvc -G "Visual Studio 17 2022" -A x64
+cmake --build local_altair/build-msvc --config Release
+```
+
+For Windows on Arm64, use the Arm64 Visual Studio generator platform:
+
+```powershell
+cmake -S local_altair -B local_altair/build-msvc-arm64 -G "Visual Studio 17 2022" -A ARM64
+cmake --build local_altair/build-msvc-arm64 --config Release
+```
+
 Run:
 
 ```sh
 ./local_altair/build/altair-local
 ```
+
+On Windows, run the generated executable from the matching build configuration, for example:
+
+```powershell
+.\local_altair\build-msvc\Release\altair-local.exe
+```
+
+Windows amd64 requirements:
+
+- Windows 10 version 1903 or newer, or Windows 11, with Windows Terminal recommended for ANSI output.
+- Visual Studio 2022 Build Tools or Visual Studio 2022 with the "Desktop development with C++" workload.
+- CMake, either from the Visual Studio installer or a separate CMake install on `PATH`.
+- Git for Windows if cloning the repository on Windows.
+
+Windows Arm64 requirements:
+
+- Windows 11 on Arm64, with Windows Terminal recommended for ANSI output.
+- Visual Studio 2022 17.4 or newer, or Build Tools for Visual Studio 2022, with the "Desktop development with C++" workload and MSVC Arm64 build tools installed.
+- CMake, either from the Visual Studio installer or a separate Arm64 or x64 CMake install on `PATH`.
+- Git for Windows Arm64, or regular Git for Windows under x64 emulation.
 
 The default disks are referenced from the repo `Disks` folder, not copied:
 
