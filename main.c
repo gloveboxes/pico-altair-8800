@@ -19,6 +19,7 @@
 #endif
 #include "drivers/bluetooth/bt_keyboard.h"
 #include "FrontPanels/inky_display.h"
+#include "ansi_input.h"
 #include "build_version.h"
 #include "core1_io_mgr.h"
 #include "config.h"
@@ -36,7 +37,6 @@
 #include <string.h>
 
 #define ASCII_MASK_7BIT 0x7F
-#define CTRL_KEY(ch) ((ch) & 0x1F)
 
 #if !defined(SD_CARD_SUPPORT) && !defined(REMOTE_FS_SUPPORT)
 // Include the CPM disk image (only for embedded XIP disk controller)
@@ -99,99 +99,9 @@ void altair_reset(void)
     }
 }
 
-// Process character through ANSI escape sequence state machine
-static uint8_t process_ansi_sequence(uint8_t ch)
+static uint32_t monotonic_ms(void)
 {
-    // Translate ANSI cursor sequences to the control keys CP/M expects (WordStar style).
-    enum
-    {
-        KEY_STATE_NORMAL = 0,
-        KEY_STATE_ESC,
-        KEY_STATE_ESC_BRACKET,
-        KEY_STATE_ESC_BRACKET_NUM
-    };
-
-    static uint8_t key_state = KEY_STATE_NORMAL;
-    static uint8_t pending_key = 0;
-
-    switch (key_state)
-    {
-        case KEY_STATE_NORMAL:
-            if (ch == 0x1B)
-            {
-                key_state = KEY_STATE_ESC;
-                return 0x00; // Start of escape sequence
-            }
-            if (ch == 0x7F || ch == 0x08)
-            {
-                return (uint8_t)CTRL_KEY('H'); // Map delete/backspace to Ctrl-H (0x08)
-            }
-            return ch;
-
-        case KEY_STATE_ESC:
-            if (ch == '[')
-            {
-                key_state = KEY_STATE_ESC_BRACKET;
-                return 0x00; // Control sequence introducer
-            }
-            key_state = KEY_STATE_NORMAL;
-            return ch; // Pass through unknown sequences
-
-        case KEY_STATE_ESC_BRACKET:
-            switch (ch)
-            {
-                case 'A':
-                    key_state = KEY_STATE_NORMAL;
-                    return (uint8_t)CTRL_KEY('E'); // Up -> Ctrl-E
-                case 'B':
-                    key_state = KEY_STATE_NORMAL;
-                    return (uint8_t)CTRL_KEY('X'); // Down -> Ctrl-X
-                case 'C':
-                    key_state = KEY_STATE_NORMAL;
-                    return (uint8_t)CTRL_KEY('D'); // Right -> Ctrl-D
-                case 'D':
-                    key_state = KEY_STATE_NORMAL;
-                    return (uint8_t)CTRL_KEY('S'); // Left -> Ctrl-S
-                case '2':
-                    // Insert key sends ESC[2~ - need to consume the tilde
-                    pending_key = (uint8_t)CTRL_KEY('O'); // Insert -> Ctrl-O
-                    key_state = KEY_STATE_ESC_BRACKET_NUM;
-                    return 0x00;
-                case '3':
-                    // Delete key sends ESC[3~ - need to consume the tilde
-                    pending_key = (uint8_t)CTRL_KEY('G'); // Delete -> Ctrl-G
-                    key_state = KEY_STATE_ESC_BRACKET_NUM;
-                    return 0x00;
-                case '5':
-                    // Page Up sends ESC[5~ - need to consume the tilde
-                    pending_key = (uint8_t)CTRL_KEY('R'); // Page Up -> Ctrl-R
-                    key_state = KEY_STATE_ESC_BRACKET_NUM;
-                    return 0x00;
-                case '6':
-                    // Page Down sends ESC[6~ - need to consume the tilde
-                    pending_key = (uint8_t)CTRL_KEY('V'); // Page Down -> Ctrl-V
-                    key_state = KEY_STATE_ESC_BRACKET_NUM;
-                    return 0x00;
-                default:
-                    key_state = KEY_STATE_NORMAL;
-                    return 0x00; // Ignore other sequences
-            }
-
-        case KEY_STATE_ESC_BRACKET_NUM:
-            key_state = KEY_STATE_NORMAL;
-            if (ch == '~')
-            {
-                // Return the pending key now that we've consumed the tilde
-                uint8_t result = pending_key;
-                pending_key = 0;
-                return result;
-            }
-            pending_key = 0;
-            return 0x00; // Unexpected character, ignore
-    }
-
-    key_state = KEY_STATE_NORMAL;
-    return 0x00;
+    return to_ms_since_boot(get_absolute_time());
 }
 
 static uint8_t terminal_postprocess(uint8_t ch)
@@ -218,14 +128,16 @@ static uint8_t terminal_read(void)
     uint8_t ws_ch = 0;
     if (websocket_console_has_client() && websocket_console_try_dequeue_input(&ws_ch))
     {
-        return terminal_postprocess(ws_ch);
+        uint8_t ch = ansi_input_process((uint8_t)(ws_ch & ASCII_MASK_7BIT), monotonic_ms());
+        return terminal_postprocess(ch);
     }
 
 #if defined(BLUETOOTH_KEYBOARD_SUPPORT)
     uint8_t bt_ch = 0;
     if (bt_keyboard_try_dequeue_input(&bt_ch))
     {
-        return terminal_postprocess(bt_ch);
+        uint8_t ch = ansi_input_process((uint8_t)(bt_ch & ASCII_MASK_7BIT), monotonic_ms());
+        return terminal_postprocess(ch);
     }
 #endif
 
@@ -235,21 +147,21 @@ static uint8_t terminal_read(void)
         int c = getchar_timeout_us(0);
         if (c != PICO_ERROR_TIMEOUT)
         {
-            uint8_t ch = process_ansi_sequence((uint8_t)(c & ASCII_MASK_7BIT));
+            uint8_t ch = ansi_input_process((uint8_t)(c & ASCII_MASK_7BIT), monotonic_ms());
             return terminal_postprocess(ch);
         }
     }
 
-    return 0x00;
+    return terminal_postprocess(ansi_input_process(0x00, monotonic_ms()));
 #else
     int c = getchar_timeout_us(0); // Non-blocking read
     if (c == PICO_ERROR_TIMEOUT)
     {
-        return 0x00; // Return null if no character available
+        return terminal_postprocess(ansi_input_process(0x00, monotonic_ms()));
     }
 
     uint8_t ch = (uint8_t)(c & ASCII_MASK_7BIT);
-    ch = process_ansi_sequence(ch);
+    ch = ansi_input_process(ch, monotonic_ms());
     return terminal_postprocess(ch);
 #endif
 }
@@ -821,14 +733,20 @@ int main(void)
                 uint8_t ch = 0;
                 if (websocket_console_try_dequeue_monitor_input(&ch))
                 {
-                    process_control_panel_commands_char(ch);
+                    uint8_t filtered = ansi_input_process((uint8_t)(ch & ASCII_MASK_7BIT), monotonic_ms());
+                    filtered = terminal_postprocess(filtered);
                     handled = true;
+                    if (filtered != 0x00)
+                    {
+                        process_control_panel_commands_char(filtered);
+                    }
                 }
 
 #if defined(BLUETOOTH_KEYBOARD_SUPPORT)
                 if (!handled && bt_keyboard_try_dequeue_input(&ch))
                 {
-                    uint8_t filtered = terminal_postprocess(ch);
+                    uint8_t filtered = ansi_input_process((uint8_t)(ch & ASCII_MASK_7BIT), monotonic_ms());
+                    filtered = terminal_postprocess(filtered);
                     handled = true;
                     if (filtered != 0x00)
                     {
@@ -843,12 +761,22 @@ int main(void)
                     int c = getchar_timeout_us(0);
                     if (c != PICO_ERROR_TIMEOUT)
                     {
-                        uint8_t sc = process_ansi_sequence((uint8_t)(c & ASCII_MASK_7BIT));
+                        uint8_t sc = ansi_input_process((uint8_t)(c & ASCII_MASK_7BIT), monotonic_ms());
                         sc = terminal_postprocess(sc);
                         if (sc != 0x00)
                         {
                             process_control_panel_commands_char(sc);
                         }
+                    }
+                }
+
+                if (!handled)
+                {
+                    uint8_t filtered = ansi_input_process(0x00, monotonic_ms());
+                    filtered = terminal_postprocess(filtered);
+                    if (filtered != 0x00)
+                    {
+                        process_control_panel_commands_char(filtered);
                     }
                 }
             }

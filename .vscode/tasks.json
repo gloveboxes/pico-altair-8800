@@ -11,6 +11,24 @@
             "problemMatcher": []
         },
         {
+            "label": "Start Local Alatir",
+            "type": "shell",
+            "command": "cmake -S local_altair -B local_altair/build && cmake --build local_altair/build && ./local_altair/build/altair-local",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
             "label": "Build and Deploy Pico (Release)",
             "type": "shell",
             "command": "cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico && cmake --build build -j && mkdir -p Releases && cp build/altair.uf2 Releases/altair_pico.uf2 && echo '\\n🔄 Rebooting Pico into BOOTSEL mode...' && picotool reboot -f -u && sleep 2 && echo '📤 Uploading firmware...' && picotool load -x build/altair.uf2 -f && echo '✅ Firmware deployed and running!'",

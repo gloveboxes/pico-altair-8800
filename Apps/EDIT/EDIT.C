@@ -16,7 +16,7 @@
  * Keys:
  *   Arrow keys       Move cursor
  *   Ctrl-O          Write file
- *   Ctrl-Q          Exit
+ *   ESC/Ctrl-Q      Exit
  *   Ctrl-K          Cut current line
  *   Ctrl-C          Copy current line
  *   Ctrl-U          Paste (uncut) line
@@ -1333,7 +1333,7 @@ int help()
     curmv(7, 4);
     cput("Ctrl-O       Write file to disk");
     curmv(8, 4);
-    cput("Ctrl-Q       Exit editor");
+    cput("ESC/Ctrl-Q   Exit editor");
     curmv(9, 4);
     cput("Ctrl-K       Cut current line");
     curmv(10, 4);
@@ -1463,7 +1463,7 @@ int c;
         savef();
         rall = 1;
     }
-    else if (c == CTLQ)
+    else if (c == ESC || c == CTLQ)
     {
         if (askxit())
             quit = 1;
@@ -1561,9 +1561,6 @@ int c;
             insch(c);
         dlin = crow;
     }
-    else if (c == ESC)
-        eflg = 1;
-
     return 0;
 }
 

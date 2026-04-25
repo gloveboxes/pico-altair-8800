@@ -15,3 +15,5 @@ a:pip a:onboard.com=onboard.com
 era onboard.*
 era dx*.*
 era long.*
+
+mcpdone onboard

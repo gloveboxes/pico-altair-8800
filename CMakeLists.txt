@@ -99,6 +99,7 @@ target_include_directories(lwipopts_provider INTERFACE ${CMAKE_CURRENT_LIST_DIR}
 
 set(ALTAIR_SOURCES
     main.c
+    ansi_input.c
     wifi.c
     cpu_state.c
     FrontPanels/virtual_monitor.c
