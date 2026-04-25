@@ -52,7 +52,7 @@ echo ""
 
 # Array of boards to test
 # Note: Display 2.8 and large patch pool require RP2350 (520KB RAM) - pico/pico_w only have 264KB
-BOARDS=("pico2" "pico2_w_rfs" "pico2_w_sd" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_waveshare2_rfs" "pico2_w_display28_rfs" "pico2_w_waveshare2_rfs" "pico_w_rfs")
+BOARDS=("pico2" "pico2_w_rfs" "pico2_w_sd" "pico2_w_vt100_sd_bt" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_waveshare2_rfs" "pico2_w_display28_rfs" "pico2_w_waveshare2_rfs" "pico_w_rfs")
 
 # Create tests directory (clean slate)
 TESTS_DIR="${SCRIPT_DIR}/tests"
@@ -102,20 +102,34 @@ for BOARD in "${BOARDS[@]}"; do
     CLEAN_BOARD="${CLEAN_BOARD//_display28/}"
     CLEAN_BOARD="${CLEAN_BOARD//_waveshare35_sd/}"
     CLEAN_BOARD="${CLEAN_BOARD//_waveshare2/}"
+    CLEAN_BOARD="${CLEAN_BOARD//_vt100/}"
     CLEAN_BOARD="${CLEAN_BOARD//_rfs/}"
     CLEAN_BOARD="${CLEAN_BOARD//_sd/}"
+    CLEAN_BOARD="${CLEAN_BOARD//_bt/}"
     CMAKE_OPTS="-DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=${CLEAN_BOARD} -DSKIP_VERSION_INCREMENT=1 -DALTAIR_DEBUG=OFF"
 
     # Configure SD Card Support
-    if [[ "$BOARD" == *"_sd" ]] || [[ "$BOARD" == *"_waveshare35_sd" ]]; then
+    if [[ "$BOARD" == *"_sd" ]] || [[ "$BOARD" == *"_sd_"* ]] || [[ "$BOARD" == *"_waveshare35_sd" ]]; then
         CMAKE_OPTS="$CMAKE_OPTS -DSD_CARD_SUPPORT=ON"
     else
         CMAKE_OPTS="$CMAKE_OPTS -DSD_CARD_SUPPORT=OFF"
     fi
 
     # Add Waveshare 3.5" display support
-    if [[ "$BOARD" == *"_waveshare35_sd" ]]; then
+    if [[ "$BOARD" == *"_waveshare35_sd" ]] || [[ "$BOARD" == *"_vt100"* ]]; then
         CMAKE_OPTS="$CMAKE_OPTS -DWAVESHARE_3_5_DISPLAY=ON"
+    fi
+
+    # Add VT100 display support
+    if [[ "$BOARD" == *"_vt100"* ]]; then
+        CMAKE_OPTS="$CMAKE_OPTS -DVT100_DISPLAY=ON"
+    fi
+
+    # Add Bluetooth keyboard support
+    if [[ "$BOARD" == *"_bt" ]]; then
+        CMAKE_OPTS="$CMAKE_OPTS -DBLUETOOTH_KEYBOARD_SUPPORT=ON"
+    else
+        CMAKE_OPTS="$CMAKE_OPTS -DBLUETOOTH_KEYBOARD_SUPPORT=OFF"
     fi
 
     # Add Waveshare 2" display support
