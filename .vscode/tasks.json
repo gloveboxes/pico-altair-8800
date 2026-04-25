@@ -11,7 +11,30 @@
             "problemMatcher": []
         },
         {
-            "label": "Start Local Alatir",
+            "label": "start local altair - Windows",
+            "type": "process",
+            "command": "cmd.exe",
+            "args": [
+                "/d",
+                "/c",
+                "${workspaceFolder}/local_altair/start-local-altair-windows.cmd"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ]
+        },
+        {
+            "label": "Start Local Altair",
             "type": "shell",
             "command": "cmake -S local_altair -B local_altair/build && cmake --build local_altair/build && ./local_altair/build/altair-local",
             "options": {
