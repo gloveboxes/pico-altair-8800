@@ -189,28 +189,6 @@ int c;
     return 0;
 }
 
-/* c256(c) - Set xterm 256-color foreground. */
-int c256(c)
-int c;
-{
-    chout(ESC);
-    cput("[38;5;");
-    nump(c);
-    cput("m");
-    return 0;
-}
-
-/* b256(c) - Set xterm 256-color background. */
-int b256(c)
-int c;
-{
-    chout(ESC);
-    cput("[48;5;");
-    nump(c);
-    cput("m");
-    return 0;
-}
-
 /* cbg(r,c) - Checker color for the board border. */
 int cbg(r, c)
 int r;
@@ -281,14 +259,22 @@ int brdr()
 int brclr(r)
 int r;
 {
-    if (r < 2)
-        b256(208);
-    else if (r < 4)
-        bg(41);
-    else if (r < 6)
-        bg(42);
-    else
+    if (r == 0)
+        bg(105);
+    else if (r == 1)
+        bg(101);
+    else if (r == 2)
+        bg(43);
+    else if (r == 3)
         bg(103);
+    else if (r == 4)
+        bg(102);
+    else if (r == 5)
+        bg(104);
+    else if (r == 6)
+        bg(45);
+    else
+        bg(106);
     return 0;
 }
 

@@ -70,35 +70,19 @@ int n;
     return 0;
 }
 
-/* c256(c) - Set xterm 256-color foreground. */
-int c256(c)
-int c;
-{
-    printf("\033[38;5;%dm", c);
-    return 0;
-}
-
-/* b256(c) - Set xterm 256-color background. */
-int b256(c)
-int c;
-{
-    printf("\033[48;5;%dm", c);
-    return 0;
-}
-
 /* wood() - Select the board's dark wood color. */
 int wood()
 {
-    b256(94);
-    c256(230);
+    x_setc(44);
+    x_setc(97);
     return 0;
 }
 
 /* hole() - Select recessed pit color. */
 int hole()
 {
-    b256(58);
-    c256(230);
+    x_setc(41);
+    x_setc(97);
     return 0;
 }
 
@@ -257,10 +241,10 @@ int i;
     int row;
 
     if (i == HST)
-        c = 66;
+        c = 67;
     else
         c = 8;
-    r = BROW + 5;
+    r = BROW + 4;
     for (row = 0; row < 8; row++)
     {
         x_curmv(r + row, c);
@@ -289,6 +273,19 @@ int i;
     return 0;
 }
 
+/* clrnot(r) - Clear a message row without touching border. */
+int clrnot(r)
+int r;
+{
+    int i;
+
+    x_rstc();
+    x_curmv(r, 5);
+    for (i = 0; i < 72; i++)
+        x_cout(' ');
+    return 0;
+}
+
 /* panel() - Draw the carved wooden board panel. */
 int panel()
 {
@@ -307,7 +304,7 @@ int panel()
     {
         x_curmv(r, PNLL + 4);
         wood();
-        c256(130);
+        x_setc(33);
         pstr("................................................................");
         x_rstc();
     }
@@ -319,7 +316,7 @@ int grain()
 {
     int r;
 
-    c256(130);
+    x_setc(33);
     for (r = 9; r <= 23; r += 4)
     {
         x_curmv(r, 13);
@@ -360,11 +357,11 @@ int labels()
 int note(s)
 char *s;
 {
-    x_rstc();
+    clrnot(27);
     x_setc(37);
     x_curmv(27, 5);
     pstr(s);
-    x_ereol();
+    x_rstc();
     return 0;
 }
 
@@ -386,6 +383,21 @@ int drall()
     for (i = 7; i < CST; i++)
         drpit(i, 0);
     note("ARROWS OR 1-6 SELECT, SPACE SOWS, Q QUITS");
+    return 0;
+}
+
+/* drpos() - Redraw pit and store positions only. */
+int drpos()
+{
+    int i;
+
+    stat();
+    drstor(CST);
+    drstor(HST);
+    for (i = 0; i < HST; i++)
+        drpit(i, i == sel);
+    for (i = 7; i < CST; i++)
+        drpit(i, 0);
     return 0;
 }
 
@@ -609,7 +621,7 @@ int p;
     if (sumh() == 0 || sumc() == 0)
     {
         colend();
-        drall();
+        drpos();
         return 0;
     }
     if (pos == st)
@@ -811,8 +823,11 @@ int comp()
 /* final() - Show winner. */
 int final()
 {
-    x_rstc();
-    x_curmv(27, 5);
+    clrnot(26);
+    clrnot(27);
+    clrnot(28);
+    x_setc(37);
+    x_curmv(26, 5);
     if (quit)
         pstr("GAME QUIT");
     else if (pit[HST] > pit[CST])
@@ -821,13 +836,12 @@ int final()
         pstr("COMPUTER WINS THIS HARVEST");
     else
         pstr("DRAW GAME");
-    x_ereol();
-    x_curmv(28, 5);
+    x_curmv(27, 5);
     pstr("FINAL  YOU:");
     num2(pit[HST]);
     pstr("  CPU:");
     num2(pit[CST]);
-    x_ereol();
+    x_rstc();
     return 0;
 }
 
@@ -846,7 +860,7 @@ int main()
         if (!legal(0) || !legal(1))
         {
             colend();
-            drall();
+            drpos();
         }
     }
 

@@ -102,9 +102,10 @@ int x_rstc();   /* Reset all attributes (ESC[0m) */
  *   ESC[49m - Reset background only
  *   Combine: ESC[1;33m = bright yellow, ESC[37;44m = white on blue
  *
- * xterm 256-color (approximated to 16-color on TFT):
+ * xterm indexed color on TFT:
  *   Foreground: ESC[38;5;Nm   Background: ESC[48;5;Nm
- *   Prefer 16-color codes for consistent rendering across TFT and xterm.js.
+ *   Only N=0..15 is honored by the TFT VT100 renderer. Prefer the explicit
+ *   16-color SGR codes above for consistent rendering across TFT and xterm.js.
  *
  * For colored blocks: print spaces with background color (e.g. bg 41-47,
  * 100-107), two spaces per cell for squarer pixels. Always reset before

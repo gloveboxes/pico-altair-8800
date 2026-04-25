@@ -8,6 +8,7 @@
 #include "PortDrivers/host_files_io.h"
 #include "ansi_input.h"
 #include "io_ports.h"
+#include "PortDrivers/time_io.h"
 #include "universal_88dcdd.h"
 
 #include <errno.h>
@@ -252,6 +253,7 @@ int main(int argc, char **argv)
 
     memset(memory, 0x00, 64 * 1024);
     loadDiskLoader(0xff00);
+    time_reset();
     i8080_reset(&cpu, terminal_read, terminal_write, sense_switches, &controller, io_port_in, io_port_out);
     i8080_examine(&cpu, 0xff00);
 

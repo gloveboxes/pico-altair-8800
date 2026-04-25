@@ -4,8 +4,7 @@
  * showing IP address and condensed CPU status/address/data LEDs.
  * Software scroll with row-buffer rendering.
  * ANSI 16-colour support (SGR 30–37, 40–47, bold/bright 90–97, 100–107).
- * xterm 256-colour SGR (38;5;n and 48;5;n) is mapped to the nearest
- * 16-colour palette entry to keep per-cell storage compact.
+ * xterm indexed SGR (38;5;n and 48;5;n) accepts only palette indices 0-15.
  * Escape sequence state machine handles byte-at-a-time input.
  *
  * All drawing happens on core 1 via ws_ili9488 (shared SPI1 bus).
@@ -31,27 +30,52 @@ _Static_assert(VT_COLS * CHAR_W == DISP_W, "80 cols × 6px = 480");
 _Static_assert(VT_ROWS * CHAR_H + BAR_H == DISP_H, "30 rows + 20px bar = 320");
 
 /* ---- ANSI 16-colour palette (standard + bright) ---- */
-static const ws_color_t ansi_palette[16] = {
-    /* 0 Black   */ 0x0000,
-    /* 1 Red     */ 0x00F8,  /* ws_rgb565(255,0,0) byte-swapped */
-    /* 2 Green   */ 0xE007,  /* ws_rgb565(0,255,0) */
-    /* 3 Yellow  */ 0xE0FF,  /* ws_rgb565(255,255,0) */
-    /* 4 Blue    */ 0x1F00,  /* ws_rgb565(0,0,255) */
-    /* 5 Magenta */ 0x1FF8,  /* ws_rgb565(255,0,255) */
-    /* 6 Cyan    */ 0xFF07,  /* ws_rgb565(0,255,255) */
-    /* 7 White   */ 0xFFFF,  /* ws_rgb565(255,255,255) */
-    /* 8  Bright black (grey) */  0x0000, /* filled at init */
-    /* 9  Bright red    */        0x0000,
-    /* 10 Bright green  */        0x0000,
-    /* 11 Bright yellow */        0x0000,
-    /* 12 Bright blue   */        0x0000,
-    /* 13 Bright magenta*/        0x0000,
-    /* 14 Bright cyan   */        0x0000,
-    /* 15 Bright white  */        0x0000,
-};
+#define VT_RGB565(r, g, b) \
+    ((ws_color_t)((((uint16_t)((((uint16_t)(r) & 0xF8u) << 8) | \
+                               (((uint16_t)(g) & 0xFCu) << 3) | \
+                               ((uint16_t)(b) >> 3))) >> 8) | \
+                  (((uint16_t)((((uint16_t)(r) & 0xF8u) << 8) | \
+                               (((uint16_t)(g) & 0xFCu) << 3) | \
+                               ((uint16_t)(b) >> 3))) << 8)))
 
-/* Mutable copy filled at init so ws_rgb565 is called at runtime. */
-static ws_color_t palette[16];
+typedef enum {
+    VT_COLOR_BLACK = 0,
+    VT_COLOR_RED = 1,
+    VT_COLOR_GREEN = 2,
+    VT_COLOR_YELLOW = 3,
+    VT_COLOR_BLUE = 4,
+    VT_COLOR_MAGENTA = 5,
+    VT_COLOR_CYAN = 6,
+    VT_COLOR_WHITE = 7,
+    VT_COLOR_BRIGHT_BLACK = 8,
+    VT_COLOR_BRIGHT_RED = 9,
+    VT_COLOR_BRIGHT_GREEN = 10,
+    VT_COLOR_BRIGHT_YELLOW = 11,
+    VT_COLOR_BRIGHT_BLUE = 12,
+    VT_COLOR_BRIGHT_MAGENTA = 13,
+    VT_COLOR_BRIGHT_CYAN = 14,
+    VT_COLOR_BRIGHT_WHITE = 15,
+    VT_COLOR_COUNT = 16
+} vt_color_index_t;
+
+static const ws_color_t palette[VT_COLOR_COUNT] = {
+    [VT_COLOR_BLACK] = VT_RGB565(0, 0, 0),
+    [VT_COLOR_RED] = VT_RGB565(170, 0, 0),
+    [VT_COLOR_GREEN] = VT_RGB565(0, 170, 0),
+    [VT_COLOR_YELLOW] = VT_RGB565(170, 85, 0),
+    [VT_COLOR_BLUE] = VT_RGB565(0, 0, 170),
+    [VT_COLOR_MAGENTA] = VT_RGB565(170, 0, 170),
+    [VT_COLOR_CYAN] = VT_RGB565(0, 170, 170),
+    [VT_COLOR_WHITE] = VT_RGB565(170, 170, 170),
+    [VT_COLOR_BRIGHT_BLACK] = VT_RGB565(85, 85, 85),
+    [VT_COLOR_BRIGHT_RED] = VT_RGB565(255, 85, 85),
+    [VT_COLOR_BRIGHT_GREEN] = VT_RGB565(85, 255, 85),
+    [VT_COLOR_BRIGHT_YELLOW] = VT_RGB565(255, 255, 85),
+    [VT_COLOR_BRIGHT_BLUE] = VT_RGB565(85, 85, 255),
+    [VT_COLOR_BRIGHT_MAGENTA] = VT_RGB565(255, 85, 255),
+    [VT_COLOR_BRIGHT_CYAN] = VT_RGB565(85, 255, 255),
+    [VT_COLOR_BRIGHT_WHITE] = VT_RGB565(255, 255, 255),
+};
 
 /* Filled 6x10 oval used for bright-white 'O' game balls on the TFT. */
 static const uint16_t ball_glyph[VT_FONT_W] = {
@@ -122,34 +146,10 @@ static void clear_row(int row);
 static void clear_row_range(int row, int col_start, int col_end);
 static void csi_dispatch(uint8_t final_ch);
 static void sgr(void);
-static uint8_t xterm_to_ansi(int code);
+static bool xterm_palette_index(int code, uint8_t* mapped);
 static bool is_ball_cell(cell_t c);
 static void compose_status_bar(void);
 static void bar_draw_text_col(const char* s, int x, int y, ws_color_t fg);
-
-/* ==================================================================== */
-/* Palette init                                                         */
-/* ==================================================================== */
-
-static void init_palette(void)
-{
-    palette[0]  = ws_rgb565(0,   0,   0);
-    palette[1]  = ws_rgb565(170, 0,   0);
-    palette[2]  = ws_rgb565(0,   170, 0);
-    palette[3]  = ws_rgb565(170, 85,  0);
-    palette[4]  = ws_rgb565(0,   0,   170);
-    palette[5]  = ws_rgb565(170, 0,   170);
-    palette[6]  = ws_rgb565(0,   170, 170);
-    palette[7]  = ws_rgb565(170, 170, 170);
-    palette[8]  = ws_rgb565(85,  85,  85);
-    palette[9]  = ws_rgb565(255, 85,  85);
-    palette[10] = ws_rgb565(85,  255, 85);
-    palette[11] = ws_rgb565(255, 255, 85);
-    palette[12] = ws_rgb565(85,  85,  255);
-    palette[13] = ws_rgb565(255, 85,  255);
-    palette[14] = ws_rgb565(85,  255, 255);
-    palette[15] = ws_rgb565(255, 255, 255);
-}
 
 /* ==================================================================== */
 /* Drawing                                                              */
@@ -446,39 +446,11 @@ static void csi_private_dispatch(uint8_t ch)
 }
 
 /* ---- SGR (Select Graphic Rendition) ---- */
-static uint8_t xterm_to_ansi(int code)
+static bool xterm_palette_index(int code, uint8_t* mapped)
 {
-    int r, g, b, max, bright;
-
-    if (code < 0) return 7;
-    if (code < 16) return (uint8_t)code;
-
-    if (code >= 232) {
-        if (code < 244) return 8;
-        if (code < 252) return 7;
-        return 15;
-    }
-
-    if (code > 231) return 7;
-
-    code -= 16;
-    r = code / 36;
-    g = (code / 6) % 6;
-    b = code % 6;
-    max = r;
-    if (g > max) max = g;
-    if (b > max) max = b;
-    bright = (max >= 4) ? 8 : 0;
-
-    if (max == 0) return 0;
-    if (r >= 4 && g >= 2 && g <= 3 && b <= 1) return 3;
-    if (r >= 4 && g >= 4 && b <= 2) return 3 + bright;
-    if (r >= 4 && b >= 3 && g <= 2) return 5 + bright;
-    if (g >= 4 && b >= 3 && r <= 2) return 6 + bright;
-    if (r >= 4 && g >= 4 && b >= 4) return 7 + bright;
-    if (r >= g && r >= b) return 1 + bright;
-    if (g >= r && g >= b) return 2 + bright;
-    return 4 + bright;
+    if (code < 0 || code >= VT_COLOR_COUNT) return false;
+    *mapped = (uint8_t)code;
+    return true;
 }
 
 static void sgr(void)
@@ -501,9 +473,11 @@ static void sgr(void)
         else if (v >= 90  && v <= 97)  { cur_fg = v - 90 + 8; }  /* bright fg */
         else if (v >= 100 && v <= 107) { cur_bg = v - 100 + 8; } /* bright bg */
         else if ((v == 38 || v == 48) && i + 2 < csi_nparam && csi_params[i + 1] == 5) {
-            uint8_t mapped = xterm_to_ansi(csi_params[i + 2]);
-            if (v == 38) cur_fg = mapped;
-            else cur_bg = mapped;
+            uint8_t mapped;
+            if (xterm_palette_index(csi_params[i + 2], &mapped)) {
+                if (v == 38) cur_fg = mapped;
+                else cur_bg = mapped;
+            }
             i += 2;
         }
     }
@@ -887,7 +861,6 @@ void vt100_set_ip(const char* ip)
 
 void vt100_init(void)
 {
-    init_palette();
     reset_parser();
 
     cursor_x = 0; cursor_y = 0;
