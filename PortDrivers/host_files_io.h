@@ -1,5 +1,5 @@
-#ifndef MCP_HOST_FILES_H
-#define MCP_HOST_FILES_H
+#ifndef HOST_FILES_IO_H
+#define HOST_FILES_IO_H
 
 #include <stdint.h>
 

@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 
-#include "host_files.h"
+#include "host_files_io.h"
 #include "universal_88dcdd.h"
 
 #include "../Altair8800/intel8080.h"

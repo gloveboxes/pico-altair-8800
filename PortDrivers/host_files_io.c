@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 
-#include "host_files.h"
+#include "host_files_io.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -8,14 +8,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define FT_COMMAND_PORT 60
+#define FT_DATA_PORT 61
+
 #define FT_CHUNK_SIZE 256
-#define FT_CMD_SET_FILENAME 1
-#define FT_CMD_REQUEST_CHUNK 3
-#define FT_CMD_CLOSE 4
 #define FT_STATUS_IDLE 0
 #define FT_STATUS_DATAREADY 1
 #define FT_STATUS_EOF 2
 #define FT_STATUS_ERROR 0xff
+
+typedef enum {
+    FT_CMD_NOP = 0,
+    FT_CMD_SET_FILENAME = 1,
+    FT_CMD_REQUEST_CHUNK = 3,
+    FT_CMD_CLOSE = 4
+} ft_command_t;
 
 typedef struct {
     char apps_root[512];
@@ -138,32 +145,33 @@ static void request_chunk(void)
     g_ft.status = FT_STATUS_DATAREADY;
 }
 
-void host_files_init(const char *apps_root)
+static void host_files_output_command(uint8_t data)
 {
-    memset(&g_ft, 0, sizeof(g_ft));
-    strncpy(g_ft.apps_root, apps_root, sizeof(g_ft.apps_root) - 1);
-    g_ft.status = FT_STATUS_IDLE;
+    switch ((ft_command_t)data) {
+    case FT_CMD_NOP:
+        break;
+
+    case FT_CMD_SET_FILENAME:
+        close_file();
+        g_ft.filename_len = 0;
+        g_ft.filename[0] = '\0';
+        break;
+
+    case FT_CMD_REQUEST_CHUNK:
+        request_chunk();
+        break;
+
+    case FT_CMD_CLOSE:
+        close_file();
+        break;
+
+    default:
+        break;
+    }
 }
 
-void host_files_out(uint8_t port, uint8_t data)
+static void host_files_output_data(uint8_t data)
 {
-    if (port == 60) {
-        if (data == FT_CMD_SET_FILENAME) {
-            close_file();
-            g_ft.filename_len = 0;
-            g_ft.filename[0] = '\0';
-        } else if (data == FT_CMD_REQUEST_CHUNK) {
-            request_chunk();
-        } else if (data == FT_CMD_CLOSE) {
-            close_file();
-        }
-        return;
-    }
-
-    if (port != 61) {
-        return;
-    }
-
     if (data == 0) {
         g_ft.filename[g_ft.filename_len] = '\0';
         close_file();
@@ -178,26 +186,63 @@ void host_files_out(uint8_t port, uint8_t data)
     }
 }
 
-uint8_t host_files_in(uint8_t port)
+static uint8_t host_files_input_status(void)
 {
-    if (port == 60) {
-        if (g_ft.chunk_pos < g_ft.chunk_len) {
-            return FT_STATUS_DATAREADY;
-        }
-        if (g_ft.eof_after_chunk) {
-            close_file();
-            g_ft.status = FT_STATUS_EOF;
-            return FT_STATUS_EOF;
-        }
-        return g_ft.status;
+    if (g_ft.chunk_pos < g_ft.chunk_len) {
+        return FT_STATUS_DATAREADY;
     }
 
-    if (port == 61) {
-        if (g_ft.chunk_pos < g_ft.chunk_len) {
-            return g_ft.chunk[g_ft.chunk_pos++];
-        }
-        return 0x00;
+    if (g_ft.eof_after_chunk) {
+        close_file();
+        g_ft.status = FT_STATUS_EOF;
+        return FT_STATUS_EOF;
+    }
+
+    return g_ft.status;
+}
+
+static uint8_t host_files_input_data(void)
+{
+    if (g_ft.chunk_pos < g_ft.chunk_len) {
+        return g_ft.chunk[g_ft.chunk_pos++];
     }
 
     return 0x00;
+}
+
+void host_files_init(const char *apps_root)
+{
+    memset(&g_ft, 0, sizeof(g_ft));
+    strncpy(g_ft.apps_root, apps_root, sizeof(g_ft.apps_root) - 1);
+    g_ft.status = FT_STATUS_IDLE;
+}
+
+void host_files_out(uint8_t port, uint8_t data)
+{
+    switch (port) {
+    case FT_COMMAND_PORT:
+        host_files_output_command(data);
+        break;
+
+    case FT_DATA_PORT:
+        host_files_output_data(data);
+        break;
+
+    default:
+        break;
+    }
+}
+
+uint8_t host_files_in(uint8_t port)
+{
+    switch (port) {
+    case FT_COMMAND_PORT:
+        return host_files_input_status();
+
+    case FT_DATA_PORT:
+        return host_files_input_data();
+
+    default:
+        return 0x00;
+    }
 }
