@@ -7,7 +7,7 @@
  * Also displays lwIP network stack statistics.
  * Real-time display using VT100/ANSI escape sequences.
  *
- * Usage: Press ESC twice to quit
+ * Usage: Press ESC to quit
  *
  * Based on onboard.bas - converted to BDS C 1.6
  *
@@ -22,78 +22,89 @@
 #include <stdio.h>
 
 /* VT100/ANSI Control */
-#define KEY_ESC 27
-#define KEY_CTRL_C 3
+#define ESC 27
+
+/* Screen layout */
+#define TOP 2
+#define LEFT 3
+#define WID 76
+#define HGT 27
+#define TX 7
 
 /* Timer configuration */
-#define TIMER_ID 0    /* Use timer 0 */
-#define DELAY_MS 5000 /* 5 second delay */
+#define TMRID 0    /* Use timer 0 */
+#define DLYMS 5000 /* 5 second delay */
 
 /* LWIP Stats port and data values */
-#define STATS_PORT 50
-#define STATS_HEAP 0
-#define STATS_PBUF 1
-#define STATS_SEG 2
-#define STATS_PCB 3
+#define STPORT 50
+#define STHEAP 0
+#define STPBUF 1
+#define STSEG 2
+#define STPCB 3
 
 /* RFS Stats port and data values */
-#define RFS_PORT 51 /* Remote FS stats port */
-#define RFS_TYPE 0  /* Cache stats type */
+#define RFPORT 51 /* Remote FS stats port */
+#define RFTYPE 0  /* Cache stats type */
 
 /* Function prototypes */
 int main();
-int read_string_from_port();
+int rdstr();
 int cputs();
 int chput();
 int putnum();
-int clear_screen();
-int cursor_move();
-int hide_cursor();
-int show_cursor();
-int clear_line();
-int check_key_ready();
-int get_key();
-int display_sensor_data();
-int init_display();
+int cls();
+int cur();
+int hide();
+int show();
+int getkey();
+int dsplay();
+int initd();
+int rst();
+int setfg();
+int setbg();
+int cbg();
+int box();
+int title();
+int sect();
+int fld();
+int statln();
 
 /* Timer library functions */
 int x_delay();
-int x_tmrset();
-int x_tmrexp();
+int x_tset();
+int x_texp();
+int x_tact();
 
 /* I/O port functions */
 int bdos(), bios(), inp(), outp();
 
 /* Global variables for sensor data */
-char sensor_buffer[256];
-char clear_padding[21]; /* Pre-allocated padding string */
+char sbuf[256];
+char pad[41]; /* Pre-allocated padding string */
 
 /* Main program */
 int main()
 {
-    int key_pressed, quit_requested;
+    int key, quit;
     char lcount[4];     /* Long reading counter */
     char lone[4];       /* Long constant 1 */
-    char count_buf[16]; /* Buffer for ltoa */
+    char cntbuf[16];    /* Buffer for ltoa */
 
     itol(lcount, 0); /* Initialize counter to 0 */
     itol(lone, 1);   /* Initialize increment value */
-    quit_requested = 0;
+    quit = 0;
 
     /* Initialize display and padding string */
-    init_display();
+    initd();
 
-    while (!quit_requested)
+    while (!quit)
     {
         /* Check for quit key before doing any screen updates */
-        if (check_key_ready())
+        key = getkey();
+        if (key == ESC)
         {
-            key_pressed = get_key();
-            if (key_pressed == 27)
-            { /* ESC key */
-                quit_requested = 1;
-                break; /* Exit main loop immediately */
-            }
+            quit = 1;
+            break; /* Exit main loop immediately */
         }
 
         /* Start accelerometer and increment counter */
@@ -101,46 +112,58 @@ int main()
         ladd(lcount, lcount, lone);
 
         /* Update reading count */
-        cursor_move(5, 1);
-        cputs("Reading: ");
-        ltoa(count_buf, lcount);
-        cputs(count_buf);
-        cputs("                ");
+        cur(7, TX);
+        setfg(36);
+        cputs("Reading");
+        rst();
+        cur(7, TX + 17);
+        setfg(37);
+        ltoa(cntbuf, lcount);
+        cputs(cntbuf);
+        cputs(pad);
+        rst();
 
         /* Display all sensor data */
-        display_sensor_data();
+        dsplay();
 
         /* Update status line */
-        cursor_move(20, 1);
-        cputs("Status: Monitoring continuously... (5 sec delay)");
+        cur(26, TX);
+        setfg(33);
+        cputs("Status");
+        rst();
+        cur(26, TX + 17);
+        setfg(37);
+        cputs("Monitoring continuously... (5 sec delay)");
+        cputs(pad);
+        rst();
 
         /* Sleep using timer library with keyboard checking */
-        x_tmrset(TIMER_ID, DELAY_MS); /* Start timer with configured delay */
-        while (x_tmract(TIMER_ID) && !quit_requested)
+        x_tset(TMRID, DLYMS); /* Start timer with configured delay */
+        while (x_tact(TMRID) && !quit)
         {
-            /* Check for keypress during sleep */
-            if (check_key_ready())
+            /* Direct non-blocking read keeps ESC responsive during sleep */
+            key = getkey();
+            if (key == ESC)
             {
-                key_pressed = get_key();
-                if (key_pressed == 27)
-                { /* ESC key */
-                    quit_requested = 1;
-                    break; /* Exit timer loop immediately */
-                }
+                quit = 1;
+                break; /* Exit timer loop immediately */
             }
         }
     }
 
     /* Final status update */
-    cursor_move(20, 1);
-    cputs("Status: User requested quit. Stopping...     ");
+    cur(26, TX + 17);
+    setfg(37);
+    cputs("User requested quit. Stopping...");
+    cputs(pad);
+    rst();
 
     /* Stop the accelerometer */
     outp(64, 4);
 
     /* Restore cursor and move to bottom */
-    cursor_move(22, 1);
-    show_cursor();
+    cur(30, 1);
+    show();
     cputs("Sensor monitoring stopped by user.\r\n");
 
     return 0;
@@ -150,23 +173,23 @@ int main()
  * Read string data from port 200 until null character
  * This is equivalent to the GOSUB 1600 subroutine in BASIC
  */
-int read_string_from_port(buffer, max_len)
-char* buffer;
-int max_len;
+int rdstr(buf, max)
+char* buf;
+int max;
 {
     int i, ch;
 
     i = 0;
     ch = inp(200);
 
-    while (ch != 0 && i < max_len - 1)
+    while (ch != 0 && i < max - 1)
     {
-        buffer[i] = ch;
+        buf[i] = ch;
         i++;
         ch = inp(200);
     }
 
-    buffer[i] = 0; /* Null terminate */
+    buf[i] = 0; /* Null terminate */
     return i;
 }
 
@@ -238,20 +261,22 @@ int n;
  */
 
 /* Clear entire screen and home cursor */
-int clear_screen()
+int cls()
 {
-    chput(KEY_ESC);
+    chput(ESC);
+    cputs("[0m");
+    chput(ESC);
     cputs("[2J");
-    cursor_move(1, 1);
+    cur(1, 1);
     return 0;
 }
 
 /* Move cursor to row, col (1-based) */
-int cursor_move(row, col)
+int cur(row, col)
 int row;
 int col;
 {
-    chput(KEY_ESC);
+    chput(ESC);
     cputs("[");
     putnum(row);
     cputs(";");
@@ -261,26 +286,48 @@ int col;
 }
 
 /* Hide cursor */
-int hide_cursor()
+int hide()
 {
-    chput(KEY_ESC);
+    chput(ESC);
     cputs("[?25l");
     return 0;
 }
 
 /* Show cursor */
-int show_cursor()
+int show()
 {
-    chput(KEY_ESC);
+    chput(ESC);
     cputs("[?25h");
     return 0;
 }
 
-/* Clear current line */
-int clear_line()
+/* Reset terminal attributes. */
+int rst()
 {
-    chput(KEY_ESC);
-    cputs("[2K");
+    chput(ESC);
+    cputs("[0m");
+    return 0;
+}
+
+/* Set ANSI foreground color. */
+int setfg(c)
+int c;
+{
+    chput(ESC);
+    cputs("[");
+    putnum(c);
+    cputs("m");
+    return 0;
+}
+
+/* Set ANSI background color. */
+int setbg(c)
+int c;
+{
+    chput(ESC);
+    cputs("[");
+    putnum(c);
+    cputs("m");
     return 0;
 }
 
@@ -288,16 +335,114 @@ int clear_line()
  * Keyboard Input Functions (Non-blocking)
  */
 
-/* Check if a key is ready to be read (non-blocking) */
-int check_key_ready()
-{
-    return (bdos(11) & 0xFF);
-}
-
-/* Get a key from keyboard (call only if check_key_ready() returns true) */
-int get_key()
+/* Get a key from keyboard without blocking. */
+int getkey()
 {
     return (bdos(6, 0xFF) & 0xFF);
+}
+
+/* Checker color for the cabinet border. */
+int cbg(r, c)
+int r;
+int c;
+{
+    if (((r / 2) + (c / 2)) & 1)
+        return 100;
+    return 107;
+}
+
+/* Draw a white and gray checked dashboard frame. */
+int box()
+{
+    int r;
+    int c;
+
+    for (r = 0; r < HGT; r++)
+    {
+        cur(TOP + r, LEFT);
+        for (c = 0; c < WID; c++)
+        {
+            if (r < 2 || r >= HGT - 2 || c < 2 || c >= WID - 2)
+            {
+                setbg(cbg(r, c));
+                chput(' ');
+            }
+            else
+            {
+                rst();
+                chput(' ');
+            }
+        }
+    }
+    rst();
+    return 0;
+}
+
+/* Draw the screen title. */
+int title()
+{
+    cur(4, TX);
+    setfg(36);
+    cputs("ONBOARD");
+    rst();
+    cputs(" Monitor");
+    setfg(33);
+    cputs("  Altair 8800");
+    rst();
+    cputs("  ");
+    setfg(37);
+    cputs("Press ESC to quit");
+    rst();
+    return 0;
+}
+
+/* Draw a section heading. */
+int sect(row, txt)
+int row;
+char *txt;
+{
+    cur(row, TX);
+    setfg(33);
+    cputs(txt);
+    rst();
+    cur(row, TX + 13);
+    setfg(37);
+    cputs("-------------------------------------------------------");
+    rst();
+    return 0;
+}
+
+/* Draw a labelled field. */
+int fld(row, lab, val)
+int row;
+char *lab;
+char *val;
+{
+    cur(row, TX);
+    setfg(36);
+    cputs(lab);
+    rst();
+    cur(row, TX + 17);
+    setfg(37);
+    cputs(val);
+    cputs(pad);
+    rst();
+    return 0;
+}
+
+/* Read and draw one lwIP stats line. */
+int statln(row, typ)
+int row;
+int typ;
+{
+    cur(row, TX);
+    setfg(37);
+    outp(STPORT, typ);
+    rdstr(sbuf, 255);
+    cputs(sbuf);
+    cputs(pad);
+    rst();
+    return 0;
 }
 
 /*
@@ -305,62 +450,52 @@ int get_key()
  */
 
 /* Initialize display and pre-fill padding string */
-int init_display()
+int initd()
 {
     int i;
 
     /* Initialize padding string once */
-    for (i = 0; i < 20; i++)
+    for (i = 0; i < 8; i++)
     {
-        clear_padding[i] = ' ';
+        pad[i] = ' ';
     }
-    clear_padding[20] = 0; /* Null terminate */
+    pad[8] = 0; /* Null terminate */
 
     /* Set up display */
-    clear_screen();
-    hide_cursor();
+    cls();
+    hide();
 
-    /* Draw static header */
-    cursor_move(1, 1);
-    cputs("===== Altair 8800 Onboard Sensor Monitor v1.2 =====");
-    cursor_move(2, 1);
-    cputs("===================================================");
-    cursor_move(3, 1);
-    cputs("Press ESC twice to quit.");
+    box();
+    title();
+    sect(9, "System");
+    sect(12, "Uptime");
+    sect(16, "lwIP Network");
+    sect(23, "Remote FS");
 
     return 0;
 }
 
 /* Optimized sensor data display */
-int display_sensor_data()
+int dsplay()
 {
     char luptime[4];
     char l3600[4], l60[4];
     char lhours[4], lrem[4];
     char lmins[4];
-    char bufHours[16], bufMins[16];
+    char bhours[16], bmins[16];
 
     /* Get and display emulator version */
-    cursor_move(7, 1);
-    cputs("Emulator version: ");
     outp(70, 0);
-    read_string_from_port(sensor_buffer, 255);
-    cputs(sensor_buffer);
-    cputs(clear_padding); /* Use pre-allocated padding */
+    rdstr(sbuf, 255);
+    fld(10, "Emulator", sbuf);
 
     /* Get and display system uptime in seconds */
-    cursor_move(8, 1);
-    cputs("Uptime in secs:   ");
     outp(41, 1);
-    read_string_from_port(sensor_buffer, 255);
-    cputs(sensor_buffer);
-    cputs(clear_padding);
+    rdstr(sbuf, 255);
+    fld(13, "Seconds", sbuf);
 
     /* Calculate and display uptime in hours:minutes format using unsigned long */
-    cursor_move(9, 1);
-    cputs("Uptime hrs:mins:  ");
-
-    atol(luptime, sensor_buffer);
+    atol(luptime, sbuf);
     itol(l3600, 3600);
     itol(l60, 60);
     ldiv(lhours, luptime, l3600); /* lhours = luptime / 3600 */
@@ -368,62 +503,40 @@ int display_sensor_data()
 
     ldiv(lmins, lrem, l60); /* lmins = (luptime % 3600) / 60 */
 
-    ltoa(bufHours, lhours);
-    ltoa(bufMins, lmins);
-    cputs(bufHours);
+    cur(14, TX);
+    setfg(36);
+    cputs("Hours:mins");
+    rst();
+    cur(14, TX + 17);
+    setfg(37);
+    ltoa(bhours, lhours);
+    ltoa(bmins, lmins);
+    cputs(bhours);
     cputs(":");
 
     /* Pad minutes with leading zero if less than 10 */
-    if (atoi(bufMins) < 10)
+    if (atoi(bmins) < 10)
     {
         cputs("0");
     }
-    cputs(bufMins);
-
-    cputs(clear_padding);
+    cputs(bmins);
+    cputs(pad);
+    rst();
 
     /* Get and display lwIP network statistics */
-    cursor_move(11, 1);
-    cputs("---- lwIP Network Statistics ----");
-
-    /* Heap stats */
-    cursor_move(12, 1);
-    outp(STATS_PORT, STATS_HEAP);
-    read_string_from_port(sensor_buffer, 255);
-    cputs(sensor_buffer);
-    cputs(clear_padding);
-
-    /* PBUF pool stats */
-    cursor_move(13, 1);
-    outp(STATS_PORT, STATS_PBUF);
-    read_string_from_port(sensor_buffer, 255);
-    cputs(sensor_buffer);
-    cputs(clear_padding);
-
-    /* TCP Segment stats */
-    cursor_move(14, 1);
-    outp(STATS_PORT, STATS_SEG);
-    read_string_from_port(sensor_buffer, 255);
-    cputs(sensor_buffer);
-    cputs(clear_padding);
-
-    /* TCP PCB stats */
-    cursor_move(15, 1);
-    outp(STATS_PORT, STATS_PCB);
-    read_string_from_port(sensor_buffer, 255);
-    cputs(sensor_buffer);
-    cputs(clear_padding);
-
-    /* Remote FS Statistics section */
-    cursor_move(17, 1);
-    cputs("---- Remote FS Statistics ----");
+    statln(17, STHEAP);
+    statln(18, STPBUF);
+    statln(19, STSEG);
+    statln(20, STPCB);
 
     /* RFS Cache stats */
-    cursor_move(18, 1);
-    outp(RFS_PORT, RFS_TYPE);
-    read_string_from_port(sensor_buffer, 255);
-    cputs(sensor_buffer);
-    cputs(clear_padding);
+    cur(24, TX);
+    setfg(37);
+    outp(RFPORT, RFTYPE);
+    rdstr(sbuf, 255);
+    cputs(sbuf);
+    cputs(pad);
+    rst();
 
     return 0;
 }

@@ -1,808 +1,981 @@
 /*
- * Tetris Game for Altair 8800 - VT100/xterm.js compatible
+ * Tetris for Altair 8800 - VT100/xterm.js compatible
  * BDS C 1.6 on CP/M
  *
- * Rewritten for BDS C constraints:
- *  - All symbols unique within first 7 characters
- *  - No goto labels named 'end'
- *  - Simple deterministic gravity; timer port 29: 1 while running, 0 on expiry
- *  - K&R style definitions only
+ * Fresh game engine with the original bright block-terminal theme:
+ *  - 7-bag piece supply
+ *  - Simple wall-kick rotation
+ *  - Soft drop, hard drop, scoring, levels
+ *  - EDIT.C-style ESC [ A/B/C/D cursor sequence handling
  */
 
-#include "dxterm.h"
-#include "dxtimer.h"
-#include "dxsys.h"
-
-/* --- BDS C hooks --- */
 int bdos();
 int bios();
 int inp();
 int outp();
 
-/* Timer configuration */
-#define TIMER_ID 2  /* Use timer 2 */
-#define DELAY_MS 25 /* 25ms game loop delay like snake */
+#define TMRID 2
+#define TMRMS 25
+#define TMRHI 28
+#define TMRLO 29
+#define ESC 27
+#define KUP 5
+#define KDN 24
+#define KLT 19
+#define KRT 4
+#define KSP 32
 
-/* --- Board & UI layout --- */
-#define BD_W 10
-#define BD_H 20
-#define BD_SROW 3
-#define BD_SCOL 30
+#define BWID 10
+#define BHGT 20
+#define BROW 4
+#define BCOL 30
 
-#define PRV_ROW 6
-#define PRV_COL 51
+#define NROW 6
+#define NCOL 54
 
-/* --- Game constants --- */
-#define PIECE_NONE 0
-#define PIECE_I 1
-#define PIECE_O 2
-#define PIECE_T 3
-#define PIECE_S 4
-#define PIECE_Z 5
-#define PIECE_J 6
-#define PIECE_L 7
+#define PNUL 0
+#define PI 1
+#define PO 2
+#define PT 3
+#define PS 4
+#define PZ 5
+#define PJ 6
+#define PL 7
 
-#define GAME_PLAYING 0
-#define GAME_OVER 1
-#define GAME_QUIT 3
+#define RUN 0
+#define OVER 1
+#define QUIT 2
 
-/* --- Globals (<=7 chars, unique) --- */
-int board[BD_H][BD_W];
+#define KNON 0
+#define KQUI 1
+#define KLEF 2
+#define KRIG 3
+#define KROT 4
+#define KSOF 5
+#define KHAR 6
 
-int act_pcs;      /* active piece id */
-int act_rot;      /* active rotation */
-int act_x, act_y; /* board coords */
+int grd[BHGT][BWID];
+int shp[8][4];
+int bag[7];
+int bagn;
 
-int nxt_pcs; /* next piece id */
-int game_st; /* state */
+int actp;
+int actr;
+int actx;
+int acty;
+int nxtp;
+
+int gstat;
 int score;
-int lines_cl; /* lines cleared */
-int level;
-int fall_tm; /* gravity tick counter */
-int fall_sp; /* ticks per row */
-int soft_dr; /* soft drop active this tick */
+int lines;
+int lvl;
+int tick;
+int grav;
 
-int pcs_shp[8][4]; /* 16-bit 4x4 masks, bit15=TL, bit0=BR */
+int prvp;
+int prvr;
+int prvx;
+int prvy;
+int prvo;
 
-int prv_ax; /* previous active x */
-int prv_ay; /* previous active y */
-int prv_rt; /* previous active rotation */
-int prv_pc; /* previous active piece id */
-int prv_on; /* previous active drawn flag */
+int escst;
+int escct;
 
-/* ========================= Console wrappers using dxterm ========================= */
-#define chput(c) putchar(c)
-#define cputs(s) puts(s)
-#define putnum(n) x_numpr(n)
-#define cur_mov(row, col) x_curmv(row, col)
-#define clr_scr() x_clrsc()
-#define hid_cur() x_hidcr()
-#define shw_cur() x_shwcr()
-#define ers_cur() x_erseol()
-#define set_col(code) x_setcol(code)
-#define rst_col() x_rstcol()
+/* outch(c) - Write one console character. */
+int outch(c)
+int c;
+{
+    return bios(4, c);
+}
 
-/* ========================= Simple RNG ========================= */
-int iabs(n)
+/* pstr(s) - Print a NUL-terminated string. */
+int pstr(s)
+char *s;
+{
+    while (*s)
+    {
+        outch(*s);
+        s++;
+    }
+    return 0;
+}
+
+/* pnum(n) - Print a non-negative decimal number. */
+int pnum(n)
 int n;
 {
-    return (n < 0) ? -n : n;
-}
-
-int rnd_pcs()
-{ 
-    unsigned rnd;
-    rnd = x_rand();
-    return (rnd % 7) + 1; /* PIECE_I through PIECE_L */
-}
-
-/* ========================= Shapes ========================= */
-int init_shp()
-{
-    /* MSB-first: bit15=TL, bit0=BR; row-major */
-    /* I */
-    pcs_shp[PIECE_I][0] = 0x0F00;
-    pcs_shp[PIECE_I][1] = 0x2222;
-    pcs_shp[PIECE_I][2] = 0x00F0;
-    pcs_shp[PIECE_I][3] = 0x4444;
-    /* O */
-    pcs_shp[PIECE_O][0] = 0x0660;
-    pcs_shp[PIECE_O][1] = 0x0660;
-    pcs_shp[PIECE_O][2] = 0x0660;
-    pcs_shp[PIECE_O][3] = 0x0660;
-    /* T */
-    pcs_shp[PIECE_T][0] = 0x0E40;
-    pcs_shp[PIECE_T][1] = 0x4C40;
-    pcs_shp[PIECE_T][2] = 0x4E00;
-    pcs_shp[PIECE_T][3] = 0x4640;
-    /* S */
-    pcs_shp[PIECE_S][0] = 0x06C0;
-    pcs_shp[PIECE_S][1] = 0x4620;
-    pcs_shp[PIECE_S][2] = 0x06C0;
-    pcs_shp[PIECE_S][3] = 0x4620;
-    /* Z */
-    pcs_shp[PIECE_Z][0] = 0x0C60;
-    pcs_shp[PIECE_Z][1] = 0x2640;
-    pcs_shp[PIECE_Z][2] = 0x0C60;
-    pcs_shp[PIECE_Z][3] = 0x2640;
-    /* J */
-    pcs_shp[PIECE_J][0] = 0x08E0;
-    pcs_shp[PIECE_J][1] = 0x6440;
-    pcs_shp[PIECE_J][2] = 0x0E20;
-    pcs_shp[PIECE_J][3] = 0x44C0;
-    /* L */
-    pcs_shp[PIECE_L][0] = 0x02E0;
-    pcs_shp[PIECE_L][1] = 0x4460;
-    pcs_shp[PIECE_L][2] = 0x0E80;
-    pcs_shp[PIECE_L][3] = 0x0C44;
-    return 0;
-}
-
-int pcell(piece, rot, row, col)
-int piece, rot, row, col;
-{
-    int idx, dt;
-    if (piece < PIECE_I || piece > PIECE_L)
-        return 0;
-    if (row < 0 || row >= 4 || col < 0 || col >= 4)
-        return 0;
-    dt = pcs_shp[piece][rot & 3];
-    idx = row * 4 + col; /* 0..15 */
-    return (dt >> (15 - idx)) & 1;
-}
-
-int pcs_chr(piece)
-int piece;
-{
-    if (piece == PIECE_I)
-        return '#';
-    if (piece == PIECE_O)
-        return 'O';
-    if (piece == PIECE_T)
-        return 'T';
-    if (piece == PIECE_S)
-        return 'S';
-    if (piece == PIECE_Z)
-        return 'Z';
-    if (piece == PIECE_J)
-        return 'J';
-    if (piece == PIECE_L)
-        return 'L';
-    return ' ';
-}
-
-/* Color palette for pieces using dxterm constants */
-int pcs_col(piece)
-int piece;
-{
-    if (piece == PIECE_I)
-        return XC_CYN; /* Cyan */
-    if (piece == PIECE_O)
-        return XC_YEL; /* Yellow */
-    if (piece == PIECE_T)
-        return XC_MAG; /* Magenta */
-    if (piece == PIECE_S)
-        return XC_GRN; /* Green */
-    if (piece == PIECE_Z)
-        return XC_RED; /* Red */
-    if (piece == PIECE_J)
-        return XC_BLU; /* Blue */
-    if (piece == PIECE_L)
-        return XC_BYEL; /* Bright Yellow */
-    return XC_WHT;      /* White */
-}
-
-/* ========================= UI ========================= */
-int drw_ins()
-{
-    cur_mov(1, 1);
-    cputs("TETRIS for Altair 8800 V1.5 (Enable Character Mode: Ctrl+L)");
-    cur_mov(2, 1);
-    cputs("LEFT/RIGHT: Move  UP: Rotate  DOWN: Soft Drop  SPACE: Hard Drop  ESC x2: Quit");
-    cur_mov(3, 1);
-    cputs("====================================================================");
-    return 0;
-}
-
-int drw_bor()
-{
+    char b[6];
     int i;
-    for (i = 0; i < BD_H + 2; i++)
+
+    if (n == 0)
     {
-        cur_mov(BD_SROW + i, BD_SCOL - 1);
-        chput('|');
+        outch('0');
+        return 0;
     }
-    for (i = 0; i < BD_H + 2; i++)
+
+    i = 0;
+    while (n > 0 && i < 6)
     {
-        cur_mov(BD_SROW + i, BD_SCOL + BD_W * 2);
-        chput('|');
+        b[i] = (n % 10) + '0';
+        i++;
+        n = n / 10;
     }
-    cur_mov(BD_SROW + BD_H + 1, BD_SCOL - 1);
-    for (i = 0; i < BD_W * 2 + 2; i++)
-        chput('-');
+
+    while (i > 0)
+    {
+        i--;
+        outch(b[i]);
+    }
     return 0;
 }
 
-int brd_cell(r, c)
+/* cur(r,c) - Move cursor to one-based row and column. */
+int cur(r, c)
 int r;
 int c;
 {
-    int piece;
-    int rel_r;
-    int rel_c;
-
-    piece = board[r][c];
-
-    /* Restore normal piece logic */
-
-    if (game_st == GAME_PLAYING && piece == 0)
-    {
-        rel_r = r - act_y;
-        rel_c = c - act_x;
-        if (rel_r >= 0 && rel_r < 4 && rel_c >= 0 && rel_c < 4)
-        {
-            if (pcell(act_pcs, act_rot, rel_r, rel_c))
-            {
-                piece = act_pcs;
-            }
-        }
-    }
-
-    return piece;
-}
-
-int brd_syn()
-{
-    int r;
-    int c;
-    int scr_row;
-    int scr_col;
-    int color;
-    int cur_col;
-
-    rst_col();
-    for (r = 0; r < BD_H; r++)
-    {
-        scr_row = BD_SROW + r + 1;
-        scr_col = BD_SCOL;
-        cur_col = 0;
-        cur_mov(scr_row, scr_col);
-        for (c = 0; c < BD_W; c++)
-        {
-            color = board[r][c];
-            if (color != 0)
-            {
-                color = pcs_col(color);
-                if (cur_col != color)
-                {
-                    set_col(color);
-                    cur_col = color;
-                }
-                chput('#');
-                chput('#');
-            }
-            else
-            {
-                if (cur_col != 0)
-                {
-                    rst_col();
-                    cur_col = 0;
-                }
-                chput(' ');
-                chput(' ');
-            }
-        }
-        if (cur_col != 0)
-        {
-            rst_col();
-        }
-    }
-
-    prv_on = 0;
-    prv_pc = PIECE_NONE;
-    cur_mov(5, 1);
+    outch(ESC);
+    pstr("[");
+    pnum(r);
+    pstr(";");
+    pnum(c);
+    pstr("H");
     return 0;
 }
 
-int clr_act(piece, rot, x, y)
-int piece;
-int rot;
+/* cls() - Clear screen and reset attributes. */
+int cls()
+{
+    outch(ESC);
+    pstr("[0m");
+    outch(ESC);
+    pstr("[2J");
+    cur(1, 1);
+    return 0;
+}
+
+/* hide() - Hide the terminal cursor. */
+int hide()
+{
+    outch(ESC);
+    pstr("[?25l");
+    return 0;
+}
+
+/* show() - Show the terminal cursor. */
+int show()
+{
+    outch(ESC);
+    pstr("[?25h");
+    return 0;
+}
+
+/* rst() - Reset terminal attributes. */
+int rst()
+{
+    outch(ESC);
+    pstr("[0m");
+    return 0;
+}
+
+/* setbg(c) - Set ANSI background color. */
+int setbg(c)
+int c;
+{
+    outch(ESC);
+    pstr("[");
+    pnum(c);
+    pstr("m");
+    return 0;
+}
+
+/* setfg(c) - Set ANSI foreground color. */
+int setfg(c)
+int c;
+{
+    outch(ESC);
+    pstr("[");
+    pnum(c);
+    pstr("m");
+    return 0;
+}
+
+/* keyrd() - Read raw key without waiting. */
+int keyrd()
+{
+    return bdos(6, 0xFF) & 0xFF;
+}
+
+/* tset(ms) - Start timer 2 for ms milliseconds. */
+int tset(ms)
+int ms;
+{
+    outp(TMRHI, ms >> 8);
+    outp(TMRLO, ms & 0xFF);
+    return 0;
+}
+
+/* tact() - Return non-zero while timer 2 is active. */
+int tact()
+{
+    return inp(TMRLO);
+}
+
+/* rnd() - Read a random word from emulator ports. */
+unsigned rnd()
+{
+    unsigned r;
+
+    outp(45, 1);
+    r = inp(200);
+    r = r | (inp(200) << 8);
+    return r;
+}
+
+/* pbg(p) - Return block background color for a piece. */
+int pbg(p)
+int p;
+{
+    if (p == PI) return 46;
+    if (p == PO) return 43;
+    if (p == PT) return 45;
+    if (p == PS) return 42;
+    if (p == PZ) return 41;
+    if (p == PJ) return 44;
+    if (p == PL) return 103;
+    return 47;
+}
+
+/* cbg(r,c) - Checker color for the cabinet border. */
+int cbg(r, c)
+int r;
+int c;
+{
+    if (((r / 2) + (c / 2)) & 1)
+        return 100;
+    return 107;
+}
+
+/* inishp() - Build 4x4 rotation masks. */
+int inishp()
+{
+    shp[PI][0] = 0x0F00; shp[PI][1] = 0x2222;
+    shp[PI][2] = 0x00F0; shp[PI][3] = 0x4444;
+
+    shp[PO][0] = 0x0660; shp[PO][1] = 0x0660;
+    shp[PO][2] = 0x0660; shp[PO][3] = 0x0660;
+
+    shp[PT][0] = 0x0E40; shp[PT][1] = 0x4C40;
+    shp[PT][2] = 0x4E00; shp[PT][3] = 0x4640;
+
+    shp[PS][0] = 0x06C0; shp[PS][1] = 0x4620;
+    shp[PS][2] = 0x06C0; shp[PS][3] = 0x4620;
+
+    shp[PZ][0] = 0x0C60; shp[PZ][1] = 0x2640;
+    shp[PZ][2] = 0x0C60; shp[PZ][3] = 0x2640;
+
+    shp[PJ][0] = 0x08E0; shp[PJ][1] = 0x6440;
+    shp[PJ][2] = 0x0E20; shp[PJ][3] = 0x44C0;
+
+    shp[PL][0] = 0x02E0; shp[PL][1] = 0x4460;
+    shp[PL][2] = 0x0E80; shp[PL][3] = 0x0C44;
+    return 0;
+}
+
+/* cell(p,r,y,x) - Test one cell in a piece mask. */
+int cell(p, r, y, x)
+int p;
+int r;
+int y;
+int x;
+{
+    int bit;
+
+    if (p < PI || p > PL)
+        return 0;
+    bit = y * 4 + x;
+    return (shp[p][r & 3] >> (15 - bit)) & 1;
+}
+
+/* filbag() - Refill and shuffle the piece bag. */
+int filbag()
+{
+    int i;
+    int j;
+    int t;
+
+    for (i = 0; i < 7; i++)
+        bag[i] = i + 1;
+
+    for (i = 6; i > 0; i--)
+    {
+        j = rnd() % (i + 1);
+        t = bag[i];
+        bag[i] = bag[j];
+        bag[j] = t;
+    }
+
+    bagn = 7;
+    return 0;
+}
+
+/* newpcs() - Take the next piece from the bag. */
+int newpcs()
+{
+    if (bagn <= 0)
+        filbag();
+    bagn--;
+    return bag[bagn];
+}
+
+/* fit(p,r,x,y) - Return non-zero if a piece placement is legal. */
+int fit(p, r, x, y)
+int p;
+int r;
 int x;
 int y;
 {
-    int pr;
-    int pc;
-    int run_len;
-    int run_col;
-    int br;
-    int bc;
-    int scr_row;
-    int scr_col;
-    int i;
+    int py;
+    int px;
+    int by;
+    int bx;
 
-    if (piece < PIECE_I || piece > PIECE_L)
-        return 0;
-
-    rst_col();
-    for (pr = 0; pr < 4; pr++)
+    for (py = 0; py < 4; py++)
     {
-        br = y + pr;
-        if (br < 0 || br >= BD_H)
-            continue;
-        run_len = 0;
-        for (pc = 0; pc <= 4; pc++)
+        for (px = 0; px < 4; px++)
         {
-            if (pc < 4 && pcell(piece, rot, pr, pc))
+            if (cell(p, r, py, px))
             {
-                bc = x + pc;
-                if (bc >= 0 && bc < BD_W)
-                {
-                    if (run_len == 0)
-                        run_col = bc;
-                    run_len++;
-                    continue;
-                }
-            }
-            if (run_len > 0)
-            {
-                scr_row = BD_SROW + br + 1;
-                scr_col = BD_SCOL + run_col * 2;
-                cur_mov(scr_row, scr_col);
-                for (i = 0; i < run_len; i++)
-                {
-                    chput(' ');
-                    chput(' ');
-                }
-                run_len = 0;
-            }
-        }
-    }
-
-    return 0;
-}
-
-int drw_act(piece, rot, x, y)
-int piece;
-int rot;
-int x;
-int y;
-{
-    int pr;
-    int pc;
-    int run_len;
-    int run_col;
-    int br;
-    int bc;
-    int scr_row;
-    int scr_col;
-    int i;
-    int color;
-    int color_on;
-
-    if (piece < PIECE_I || piece > PIECE_L)
-        return 0;
-
-    color = pcs_col(piece);
-    color_on = 0;
-    for (pr = 0; pr < 4; pr++)
-    {
-        br = y + pr;
-        if (br < 0 || br >= BD_H)
-            continue;
-        run_len = 0;
-        for (pc = 0; pc <= 4; pc++)
-        {
-            if (pc < 4 && pcell(piece, rot, pr, pc))
-            {
-                bc = x + pc;
-                if (bc >= 0 && bc < BD_W)
-                {
-                    if (!color_on)
-                    {
-                        set_col(color);
-                        color_on = 1;
-                    }
-                    if (run_len == 0)
-                        run_col = bc;
-                    run_len++;
-                    continue;
-                }
-            }
-            if (run_len > 0)
-            {
-                scr_row = BD_SROW + br + 1;
-                scr_col = BD_SCOL + run_col * 2;
-                cur_mov(scr_row, scr_col);
-                for (i = 0; i < run_len; i++)
-                {
-                    chput('#');
-                    chput('#');
-                }
-                run_len = 0;
-            }
-        }
-    }
-    if (color_on)
-    {
-        rst_col();
-    }
-
-    return 0;
-}
-
-int brd_drw()
-{
-    int rot;
-
-    rot = act_rot & 3;
-
-    if (prv_on && game_st == GAME_PLAYING && act_pcs >= PIECE_I && act_pcs <= PIECE_L)
-    {
-        if (prv_pc == act_pcs && prv_rt == rot && prv_ax == act_x && prv_ay == act_y)
-        {
-            return 0;
-        }
-    }
-
-    if (prv_on)
-    {
-        clr_act(prv_pc, prv_rt, prv_ax, prv_ay);
-        prv_on = 0;
-    }
-
-    if (game_st == GAME_PLAYING && act_pcs >= PIECE_I && act_pcs <= PIECE_L)
-    {
-        drw_act(act_pcs, rot, act_x, act_y);
-        prv_ax = act_x;
-        prv_ay = act_y;
-        prv_rt = rot;
-        prv_pc = act_pcs;
-        prv_on = 1;
-    }
-
-    cur_mov(5, 1);
-    return 0;
-}
-
-int drw_nxt()
-{
-    int i, j, ch;
-    rst_col();
-    cur_mov(PRV_ROW, PRV_COL);
-    cputs("Next:");
-    cur_mov(PRV_ROW + 1, PRV_COL);
-    cputs("    ");
-    cur_mov(PRV_ROW + 2, PRV_COL);
-    cputs("    ");
-    cur_mov(PRV_ROW + 3, PRV_COL);
-    cputs("    ");
-    cur_mov(PRV_ROW + 4, PRV_COL);
-    cputs("    ");
-    if (nxt_pcs < PIECE_I || nxt_pcs > PIECE_L)
-        return 0;
-    ch = pcs_chr(nxt_pcs);
-    set_col(pcs_col(nxt_pcs));
-    for (i = 0; i < 4; i++)
-        for (j = 0; j < 4; j++)
-            if (pcell(nxt_pcs, 0, i, j))
-            {
-                cur_mov(PRV_ROW + 1 + i, PRV_COL + j);
-                chput(ch);
-            }
-    rst_col();
-    return 0;
-}
-
-int upd_stat()
-{
-    cur_mov(5, 1);
-    cputs("Score: ");
-    putnum(score);
-    cputs("          ");
-    cur_mov(6, 1);
-    cputs("Lines: ");
-    putnum(lines_cl);
-    cputs("          ");
-    cur_mov(7, 1);
-    cputs("Level: ");
-    putnum(level);
-    cputs("          ");
-    return 0;
-}
-
-/* ========================= Game logic ========================= */
-int is_pos(piece, rot, x, y)
-int piece, rot, x, y;
-{
-    int i, j, bx, by;
-    if (piece < PIECE_I || piece > PIECE_L)
-        return 0;
-    for (i = 0; i < 4; i++)
-        for (j = 0; j < 4; j++)
-            if (pcell(piece, rot, i, j))
-            {
-                bx = x + j;
-                by = y + i;
-                if (bx < 0 || bx >= BD_W || by >= BD_H)
+                by = y + py;
+                bx = x + px;
+                if (bx < 0 || bx >= BWID || by >= BHGT)
                     return 0;
-                if (by >= 0 && board[by][bx] != 0)
-                    return 0; /* allow above top */
+                if (by >= 0 && grd[by][bx] != 0)
+                    return 0;
             }
+        }
+    }
     return 1;
 }
 
-int plc_pcs()
+/* tile(p) - Draw one two-column block for a piece. */
+int tile(p)
+int p;
 {
-    int i, j, bx, by;
-    for (i = 0; i < 4; i++)
-        for (j = 0; j < 4; j++)
-            if (pcell(act_pcs, act_rot, i, j))
-            {
-                bx = act_x + j;
-                by = act_y + i;
-                if (by >= 0 && by < BD_H && bx >= 0 && bx < BD_W)
-                    board[by][bx] = act_pcs;
-            }
-    prv_on = 0;
-    prv_pc = PIECE_NONE;
-    act_pcs = PIECE_NONE;
+    if (p)
+        setbg(pbg(p));
+    else
+        rst();
+    outch(' ');
+    outch(' ');
     return 0;
 }
 
-int clr_lin()
+/* synbrd() - Redraw the fixed board contents. */
+int synbrd()
 {
-    int r, c, s, full, found;
-    found = 0;
-    for (r = BD_H - 1; r >= 0; r--)
+    int r;
+    int c;
+
+    for (r = 0; r < BHGT; r++)
+    {
+        cur(BROW + r + 1, BCOL);
+        for (c = 0; c < BWID; c++)
+            tile(grd[r][c]);
+    }
+    rst();
+    prvo = 0;
+    return 0;
+}
+
+/* clrp(p,r,x,y) - Erase a previously drawn falling piece. */
+int clrp(p, r, x, y)
+int p;
+int r;
+int x;
+int y;
+{
+    int py;
+    int px;
+    int by;
+    int bx;
+
+    for (py = 0; py < 4; py++)
+    {
+        by = y + py;
+        if (by < 0 || by >= BHGT)
+            continue;
+        for (px = 0; px < 4; px++)
+        {
+            if (cell(p, r, py, px))
+            {
+                bx = x + px;
+                if (bx >= 0 && bx < BWID)
+                {
+                    cur(BROW + by + 1, BCOL + bx * 2);
+                    tile(grd[by][bx]);
+                }
+            }
+        }
+    }
+    rst();
+    return 0;
+}
+
+/* drwp(p,r,x,y) - Draw the falling piece. */
+int drwp(p, r, x, y)
+int p;
+int r;
+int x;
+int y;
+{
+    int py;
+    int px;
+    int by;
+    int bx;
+
+    setbg(pbg(p));
+    for (py = 0; py < 4; py++)
+    {
+        by = y + py;
+        if (by < 0 || by >= BHGT)
+            continue;
+        for (px = 0; px < 4; px++)
+        {
+            if (cell(p, r, py, px))
+            {
+                bx = x + px;
+                if (bx >= 0 && bx < BWID)
+                {
+                    cur(BROW + by + 1, BCOL + bx * 2);
+                    outch(' ');
+                    outch(' ');
+                }
+            }
+        }
+    }
+    rst();
+    return 0;
+}
+
+/* actdrw() - Refresh only the active falling piece. */
+int actdrw()
+{
+    if (prvo)
+        clrp(prvp, prvr, prvx, prvy);
+
+    if (gstat == RUN && actp != PNUL)
+    {
+        drwp(actp, actr, actx, acty);
+        prvp = actp;
+        prvr = actr;
+        prvx = actx;
+        prvy = acty;
+        prvo = 1;
+    }
+    else
+    {
+        prvo = 0;
+    }
+    cur(5, 1);
+    return 0;
+}
+
+/* title() - Draw heading and controls. */
+int title()
+{
+    cur(1, 1);
+    setfg(36);
+    pstr("TETRIS");
+    rst();
+    pstr(" for ");
+    setfg(33);
+    pstr("Altair 8800");
+    rst();
+    pstr(" V2.0");
+
+    cur(2, 1);
+    setfg(37);
+    pstr("LEFT/RIGHT Move  UP Rotate  DOWN Soft Drop  SPACE Drop  ESC/Q Quit");
+    rst();
+    return 0;
+}
+
+/* border() - Draw the colourful board cabinet. */
+int border()
+{
+    int r;
+    int c;
+    int left;
+
+    left = BCOL - 2;
+    for (r = 0; r < BHGT + 2; r++)
+    {
+        cur(BROW + r, left);
+        for (c = 0; c < BWID + 2; c++)
+        {
+            setbg(cbg(r, c));
+            outch(' ');
+            outch(' ');
+        }
+    }
+    rst();
+    return 0;
+}
+
+/* stats() - Draw score, line and level values. */
+int stats()
+{
+    cur(4, 1);
+    setfg(35);
+    pstr("STATUS");
+    rst();
+
+    cur(5, 1);
+    setfg(36);
+    pstr("Score: ");
+    setfg(33);
+    pnum(score);
+    rst();
+    pstr("          ");
+
+    cur(6, 1);
+    setfg(36);
+    pstr("Lines: ");
+    setfg(33);
+    pnum(lines);
+    rst();
+    pstr("          ");
+
+    cur(7, 1);
+    setfg(36);
+    pstr("Level: ");
+    setfg(33);
+    pnum(lvl);
+    rst();
+    pstr("          ");
+    return 0;
+}
+
+/* nextdr() - Draw the next piece preview. */
+int nextdr()
+{
+    int y;
+    int x;
+
+    cur(NROW, NCOL);
+    setfg(36);
+    pstr("NEXT");
+    rst();
+
+    for (y = 0; y < 4; y++)
+    {
+        cur(NROW + y + 1, NCOL);
+        pstr("        ");
+    }
+
+    if (nxtp < PI || nxtp > PL)
+        return 0;
+
+    setbg(pbg(nxtp));
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            if (cell(nxtp, 0, y, x))
+            {
+                cur(NROW + y + 1, NCOL + x * 2);
+                outch(' ');
+                outch(' ');
+            }
+        }
+    }
+    rst();
+    return 0;
+}
+
+/* setspd() - Recompute gravity from level. */
+int setspd()
+{
+    grav = 20 - lvl;
+    if (grav < 5)
+        grav = 5;
+    return 0;
+}
+
+/* addscr(n) - Add line-clear points. */
+int addscr(n)
+int n;
+{
+    if (n == 1) score += 40 * (lvl + 1);
+    if (n == 2) score += 100 * (lvl + 1);
+    if (n == 3) score += 300 * (lvl + 1);
+    if (n == 4) score += 1200 * (lvl + 1);
+    return 0;
+}
+
+/* clrlin() - Remove full rows and compact the board. */
+int clrlin()
+{
+    int r;
+    int c;
+    int s;
+    int full;
+    int got;
+
+    got = 0;
+    for (r = BHGT - 1; r >= 0; r--)
     {
         full = 1;
-        for (c = 0; c < BD_W; c++)
-            if (board[r][c] == 0)
+        for (c = 0; c < BWID; c++)
+        {
+            if (grd[r][c] == 0)
             {
                 full = 0;
                 break;
             }
+        }
+
         if (full)
         {
-            found++;
+            got++;
             for (s = r; s > 0; s--)
-                for (c = 0; c < BD_W; c++)
-                    board[s][c] = board[s - 1][c];
-            for (c = 0; c < BD_W; c++)
-                board[0][c] = 0;
+                for (c = 0; c < BWID; c++)
+                    grd[s][c] = grd[s - 1][c];
+            for (c = 0; c < BWID; c++)
+                grd[0][c] = 0;
             r++;
         }
     }
-    if (found > 0)
+
+    if (got)
     {
-        lines_cl += found;
-        if (found == 1)
-            score += 40 * (level + 1);
-        else if (found == 2)
-            score += 100 * (level + 1);
-        else if (found == 3)
-            score += 300 * (level + 1);
-        else if (found == 4)
-            score += 1200 * (level + 1);
-        level = lines_cl / 10;
-        if (level > 20)
-            level = 20;
-        fall_sp = 20 - (level * 1); /* Start at ~0.5 second, get faster with level */
-        if (fall_sp < 6)
-            fall_sp = 6; /* Minimum 150ms fall time */
-        brd_syn();
-        upd_stat();
+        lines += got;
+        addscr(got);
+        lvl = lines / 10;
+        if (lvl > 15)
+            lvl = 15;
+        setspd();
+        synbrd();
+        stats();
     }
-    return found;
+    return got;
 }
 
-int spn_new()
+/* stamp() - Merge the active piece into the board. */
+int stamp()
 {
-    act_pcs = nxt_pcs;
-    act_rot = 0;
-    act_x = 3;
-    act_y = 0;
-    fall_tm = 0;
-    if (!is_pos(act_pcs, act_rot, act_x, act_y))
+    int py;
+    int px;
+    int by;
+    int bx;
+
+    for (py = 0; py < 4; py++)
     {
-        game_st = GAME_OVER;
+        for (px = 0; px < 4; px++)
+        {
+            if (cell(actp, actr, py, px))
+            {
+                by = acty + py;
+                bx = actx + px;
+                if (by >= 0 && by < BHGT && bx >= 0 && bx < BWID)
+                    grd[by][bx] = actp;
+            }
+        }
+    }
+    actp = PNUL;
+    return 0;
+}
+
+/* spawn() - Start a new falling piece. */
+int spawn()
+{
+    actp = nxtp;
+    actr = 0;
+    actx = 3;
+    acty = -1;
+    tick = 0;
+
+    nxtp = newpcs();
+    nextdr();
+
+    if (!fit(actp, actr, actx, acty))
+    {
+        gstat = OVER;
         return 0;
     }
-    prv_on = 0;
-    brd_drw();
-    nxt_pcs = rnd_pcs(); /* Random next piece */
-    drw_nxt();
-    upd_stat();
+
+    actdrw();
+    stats();
     return 1;
 }
 
-/* ========================= Input using dxterm ========================= */
-#define key_rdy() x_keyck()
-#define rd_key() x_keygt()
-
-int hnd_inp(ch)
-int ch;
+/* lock() - Freeze active piece, clear rows, then spawn. */
+int lock()
 {
-    int k, nx, nr;
-    int moved;
-    int scch;
-    int redraw;
-    k = ch;
-    if (game_st != GAME_PLAYING)
+    stamp();
+    actdrw();
+    clrlin();
+    if (gstat == RUN)
+        spawn();
+    return 0;
+}
+
+/* trymv(x,y,r) - Try to place the active piece. */
+int trymv(x, y, r)
+int x;
+int y;
+int r;
+{
+    if (!fit(actp, r, x, y))
         return 0;
-
-    moved = 0;
-    scch = 0;
-    redraw = 0;
-
-    if (x_islt(k))
-    {
-        nx = act_x - 1;
-        if (is_pos(act_pcs, act_rot, nx, act_y))
-        {
-            act_x = nx;
-            moved = 1;
-            redraw = 1;
-        }
-    }
-    else if (x_isrt(k))
-    {
-        nx = act_x + 1;
-        if (is_pos(act_pcs, act_rot, nx, act_y))
-        {
-            act_x = nx;
-            moved = 1;
-            redraw = 1;
-        }
-    }
-    else if (x_isup(k))
-    {
-        nr = (act_rot + 1) & 3;
-        if (is_pos(act_pcs, nr, act_x, act_y))
-        {
-            act_rot = nr;
-            moved = 1;
-            redraw = 1;
-        }
-    }
-    else if (x_isdn(k))
-    {
-        soft_dr = 1;
-    }
-    else if (x_isspc(k))
-    {
-        while (is_pos(act_pcs, act_rot, act_x, act_y + 1))
-        {
-            act_y++;
-            score += 2;
-            scch = 1;
-        }
-        fall_tm = 0;
-        moved = 1;
-        redraw = 1;
-    }
-
-    if (redraw || scch || soft_dr)
-    {
-        brd_drw();
-    }
-
-    if (scch)
-    {
-        upd_stat();
-    }
-
-    return 0;
+    actx = x;
+    acty = y;
+    actr = r & 3;
+    tick = 0;
+    actdrw();
+    return 1;
 }
 
-/* ========================= Game over ========================= */
-int show_go()
+/* rotp() - Rotate with small horizontal wall kicks. */
+int rotp()
 {
-    cur_mov(15, 5);
-    cputs("GAME OVER!");
-    cur_mov(16, 5);
-    cputs("Final Score: ");
-    putnum(score);
-    cur_mov(17, 5);
-    cputs("Lines Cleared: ");
-    putnum(lines_cl);
-    cur_mov(18, 5);
-    cputs("Level Reached: ");
-    putnum(level);
-    cur_mov(19, 5);
+    int nr;
+
+    nr = (actr + 1) & 3;
+    if (trymv(actx, acty, nr)) return 1;
+    if (trymv(actx - 1, acty, nr)) return 1;
+    if (trymv(actx + 1, acty, nr)) return 1;
+    if (trymv(actx - 2, acty, nr)) return 1;
+    if (trymv(actx + 2, acty, nr)) return 1;
     return 0;
 }
 
-/* ========================= Main ========================= */
+/* soft() - Drop one row or lock if blocked. */
+int soft()
+{
+    if (trymv(actx, acty + 1, actr))
+    {
+        score++;
+        stats();
+        return 1;
+    }
+    lock();
+    return 0;
+}
+
+/* hard() - Drop to the bottom and lock. */
+int hard()
+{
+    while (fit(actp, actr, actx, acty + 1))
+    {
+        acty++;
+        score += 2;
+    }
+    tick = 0;
+    actdrw();
+    stats();
+    lock();
+    return 0;
+}
+
+/* step() - Advance gravity one tick. */
+int step()
+{
+    tick++;
+    if (tick < grav)
+        return 0;
+    tick = 0;
+
+    if (fit(actp, actr, actx, acty + 1))
+    {
+        acty++;
+        actdrw();
+    }
+    else
+    {
+        lock();
+    }
+    return 0;
+}
+
+/* keymap(c) - Decode SDK keys and ANSI cursor sequences. */
+int keymap(c)
+int c;
+{
+    if (escst == 2)
+    {
+        escst = 0;
+        if (c == 'A') return KROT;
+        if (c == 'B') return KSOF;
+        if (c == 'C') return KRIG;
+        if (c == 'D') return KLEF;
+        return KNON;
+    }
+
+    if (escst == 1)
+    {
+        escst = 0;
+        if (c == '[')
+        {
+            escst = 2;
+            return KNON;
+        }
+        return KQUI;
+    }
+
+    if (c == ESC)
+    {
+        escst = 1;
+        escct = 0;
+        return KNON;
+    }
+    if (c == 'q' || c == 'Q') return KQUI;
+    if (c == KLT) return KLEF;
+    if (c == KRT) return KRIG;
+    if (c == KUP) return KROT;
+    if (c == KDN) return KSOF;
+    if (c == KSP) return KHAR;
+    return KNON;
+}
+
+/* dokey(k) - Apply one decoded command. */
+int dokey(k)
+int k;
+{
+    if (k == KQUI)
+    {
+        gstat = QUIT;
+        return 0;
+    }
+    if (gstat != RUN)
+        return 0;
+    if (k == KLEF) trymv(actx - 1, acty, actr);
+    if (k == KRIG) trymv(actx + 1, acty, actr);
+    if (k == KROT) rotp();
+    if (k == KSOF) soft();
+    if (k == KHAR) hard();
+    return 0;
+}
+
+/* esctik() - Let a lone ESC become quit after a tiny grace period. */
+int esctik()
+{
+    if (escst == 1)
+    {
+        escct++;
+        if (escct > 2)
+        {
+            escst = 0;
+            gstat = QUIT;
+        }
+    }
+    return 0;
+}
+
+/* overdr() - Draw final message. */
+int overdr()
+{
+    cur(15, 5);
+    if (gstat == QUIT)
+    {
+        setfg(36);
+        pstr("GAME QUIT ");
+    }
+    else
+    {
+        setfg(35);
+        pstr("GAME OVER!");
+    }
+    rst();
+
+    cur(16, 5);
+    setfg(33);
+    pstr("Final Score: ");
+    rst();
+    pnum(score);
+
+    cur(17, 5);
+    setfg(33);
+    pstr("Lines Cleared: ");
+    rst();
+    pnum(lines);
+
+    cur(18, 5);
+    setfg(33);
+    pstr("Level Reached: ");
+    rst();
+    pnum(lvl);
+    return 0;
+}
+
+/* ginit() - Reset game state. */
+int ginit()
+{
+    int r;
+    int c;
+
+    for (r = 0; r < BHGT; r++)
+        for (c = 0; c < BWID; c++)
+            grd[r][c] = 0;
+
+    bagn = 0;
+    actp = PNUL;
+    nxtp = newpcs();
+    gstat = RUN;
+    score = 0;
+    lines = 0;
+    lvl = 0;
+    tick = 0;
+    setspd();
+    prvo = 0;
+    escst = 0;
+    escct = 0;
+    return 0;
+}
+
+/* main() - Program entry point. */
 int main()
 {
-    int r, c, key;
-    int drop_sp;
     int ch;
+    int k;
 
-    game_st = GAME_PLAYING;
-    score = 0;
-    lines_cl = 0;
-    level = 0;
-    fall_tm = 0;
-    fall_sp = 20;
-    soft_dr = 0;
+    inishp();
+    ginit();
 
-    for (r = 0; r < BD_H; r++)
-        for (c = 0; c < BD_W; c++)
-            board[r][c] = 0;
-    init_shp();
+    cls();
+    hide();
+    title();
+    border();
+    synbrd();
+    stats();
+    nextdr();
+    spawn();
 
-    clr_scr();
-    hid_cur();
-    drw_ins();
-    drw_bor();
-    brd_syn();
-    brd_drw();
-    upd_stat();
-
-    nxt_pcs = rnd_pcs();
-    if (!spn_new())
-    { /* immediate game over */
-    }
-
-    while (game_st == GAME_PLAYING)
+    while (gstat == RUN)
     {
-        /* Start timer for this loop iteration */
-        x_tmrset(TIMER_ID, DELAY_MS);
+        tset(TMRMS);
+        step();
 
-        /* Only increment fall timer once per timer cycle */
-        fall_tm++;
-
-        /* Check if piece should fall */
-        drop_sp = soft_dr ? 8 : fall_sp;
-        if (fall_tm >= drop_sp)
+        while (tact() && gstat == RUN)
         {
-            if (is_pos(act_pcs, act_rot, act_x, act_y + 1))
+            ch = keyrd();
+            if (ch)
             {
-                act_y++;
-                brd_drw();
-                if (soft_dr)
-                {
-                    score += 1;
-                }
-            }
-            else
-            {
-                plc_pcs();
-                brd_drw();
-                clr_lin();
-                if (!spn_new())
-                    break;
-            }
-
-            fall_tm = 0;
-            soft_dr = 0;
-        }
-
-        /* Wait while timer is active and game is playing */
-        while (x_tmract(TIMER_ID) && game_st == GAME_PLAYING)
-        {
-            /* Check for input during wait */
-            ch = x_keyrd();
-
-            if (ch != 0)
-            {
-                if (x_isesc(ch))
-                {
-                    game_st = GAME_QUIT;
-                }
-                hnd_inp(ch);
+                k = keymap(ch);
+                if (k)
+                    dokey(k);
             }
         }
+        esctik();
     }
 
-    brd_drw();
-    upd_stat();
-    show_go();
+    actdrw();
+    stats();
+    overdr();
 
-    cur_mov(24, 1);
-    shw_cur();
-    cputs("Thanks for playing Tetris!\r\n");
+    cur(24, 1);
+    show();
+    pstr("Thanks for playing Tetris!\r\n");
     return 0;
 }

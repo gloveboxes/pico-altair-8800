@@ -10,7 +10,7 @@
  * 2. Symbols (VERY IMPORTANT):
  *    - All symbol names (functions, variables, labels, statics, globals)
  *      must be unique in their first 7 characters
- *    - Prefer short, descriptive names, e.g. "x_delay", "x_tmrset"
+ *    - Prefer short, descriptive names, e.g. "x_delay", "x_tset"
  *    - Avoid underscores beyond the leading "x_" unless necessary
  *    - Do not exceed 7 characters for clarity and linker safety
  *
@@ -33,6 +33,6 @@
 
 /* Timer control functions */
 int x_delay(timer, ms);  /* Blocking delay in milliseconds */
-int x_tmrset(timer, ms); /* Start non-blocking timer */
-int x_tmrexp(timer); /* Check if non-blocking timer has expired. True if expired, false if still running, 1 if invalid timer. */
-int x_tmract(timer); /* Check if non-blocking timer is active. Non-zero if active/running, 0 if expired, -1 if invalid timer. */
+int x_tset(timer, ms);  /* Start non-blocking timer */
+int x_texp(timer);      /* Check if non-blocking timer has expired. True if expired, false if still running, 1 if invalid timer. */
+int x_tact(timer);      /* Check if non-blocking timer is active. Non-zero if active/running, 0 if expired, -1 if invalid timer. */

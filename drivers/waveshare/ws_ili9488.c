@@ -26,6 +26,8 @@
 #define CMD_DFUNCTR  0xB6
 #define CMD_PWCTR3   0xC2
 #define CMD_VMCTR1   0xC5
+#define CMD_VSCRDEF  0x33
+#define CMD_VSCRSADD 0x37
 #define CMD_PGAMCTRL 0xE0
 #define CMD_NGAMCTRL 0xE1
 #define CMD_SLPOUT   0x11
@@ -318,4 +320,22 @@ void ws_ili9488_text_2x(const char* s, int x, int y, ws_color_t fg, ws_color_t b
 
 void ws_ili9488_get_stats(uint64_t* u, uint64_t* d) {
     if (u) *u = g_updates; if (d) *d = g_completions;
+}
+
+void ws_ili9488_set_scroll_area(uint16_t tfa, uint16_t vsa, uint16_t bfa)
+{
+    bus_acquire();
+    cmd(CMD_VSCRDEF);
+    uint8_t d[6] = { tfa>>8, tfa&0xFF, vsa>>8, vsa&0xFF, bfa>>8, bfa&0xFF };
+    dat(d, 6);
+    bus_release();
+}
+
+void ws_ili9488_set_scroll_start(uint16_t vsp)
+{
+    bus_acquire();
+    cmd(CMD_VSCRSADD);
+    uint8_t d[2] = { vsp>>8, vsp&0xFF };
+    dat(d, 2);
+    bus_release();
 }

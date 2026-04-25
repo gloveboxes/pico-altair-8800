@@ -1,6 +1,7 @@
 # Raspberry Pi Pico Altair 8800
 
 - [Raspberry Pi Pico Altair 8800](#raspberry-pi-pico-altair-8800)
+  - [Architecture](#architecture)
   - [Project Heritage](#project-heritage)
   - [Clone With Submodules](#clone-with-submodules)
   - [Serial Terminal](#serial-terminal)
@@ -39,6 +40,46 @@
   - [Install the VS Code Pico Extension](#install-the-vs-code-pico-extension)
   - [CLang Formatter](#clang-formatter)
 
+## Architecture
+
+```mermaid
+block-beta
+  columns 2
+
+  USB["USB Serial"]
+
+  UI["User Interfaces\nBrowser Console · LCD Display · Captive Portal"]
+
+  space
+  space
+
+
+  EMU["Core 0 Emulation Engine\nIntel 8080 CPU · RAM · CPU Monitor · I/O Port Access"]
+
+  PLATFORM["Core 1 Platform Services\nInput Multiplexing · Web Console Bridge · Optional WiFi/Bluetooth · VT100"]
+
+  space
+  space
+
+
+  STORAGE_SVC["Disk / Storage Services\nAltair Disk Controller · Embedded Flash Backend · SD Backend · Remote FS Backend"]
+
+  CONFIG["Persistent Configuration\nWiFi Settings · Remote FS Endpoint · Bluetooth Bond Data"]
+
+  UI --> PLATFORM
+  USB --> EMU
+  EMU <--> PLATFORM
+  PLATFORM --> STORAGE_SVC
+  CONFIG -.-> PLATFORM
+  CONFIG -.-> STORAGE_SVC
+
+  style UI fill:#4a1a6b,stroke:#7a2db8,color:#fff
+  style USB fill:#4a1a6b,stroke:#7a2db8,color:#fff
+  style PLATFORM fill:#1a4a6b,stroke:#2d7ab8,color:#fff
+  style EMU fill:#2d5a27,stroke:#4a8c3f,color:#fff
+  style STORAGE_SVC fill:#6b3a1a,stroke:#b8652d,color:#fff
+  style CONFIG fill:#5a5a27,stroke:#8c8c3f,color:#fff
+```
 
 ## Project Heritage
 
@@ -91,21 +132,31 @@ For WiFi-enabled boards (Pico W, Pico 2 W):
 
 ### Overview
 
-The Altair 8800 emulator supports SD card storage for reading/writing disk images and other files. SD card support is optional and enabled with `-DSD_CARD_SUPPORT=ON` at compile time.
+  block:ui:1
+    UI["User Interfaces\nBrowser Console · LCD Display · Captive Portal"]
+  end
 
 ### Hardware Wiring (Pololu SD Card Breakout)
 
 The SD card interface uses SPI0. Connect your Pololu SD card breakout board as follows:
-
+  block:emulation:1
+    EMU["Core 0 Emulation Engine\nIntel 8080 CPU · RAM · CPU Monitor · I/O Port Access"]
+  end
 #### Pololu SD Card Breakout (Back View)
-![Pololu SD Card Back](Docs/Media/pololu-sd-card.jpeg)
+  block:platform:1
+    PLATFORM["Core 1 Platform Services\nInput Multiplexing · Web Console Bridge · Optional WiFi/Bluetooth · VT100"]
+  end
 
 #### Visual Wiring Diagram
 
 Looking at the Pololu board from the back (as shown in image above), connect left-side pins to Pico:
-
+  block:storage_services:1
+    STORAGE_SVC["Disk / Storage Services\nAltair Disk Controller · Embedded Flash Backend · SD Backend · Remote FS Backend"]
+  end
 ```
-Pololu SD Card (Back View)          Raspberry Pi Pico (Top View)
+  block:config:1
+    CONFIG["Persistent Configuration\nWiFi Settings · Remote FS Endpoint · Bluetooth Bond Data"]
+  end
 Left Side Pins:                     Right Side of Board:
 
   GND  ─────────────────────────────▶ Pin 38 (GND)      [bottom right]

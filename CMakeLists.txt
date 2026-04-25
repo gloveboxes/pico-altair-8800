@@ -29,6 +29,7 @@ option(WAVESHARE_2_DISPLAY "Enable Waveshare 2.0 inch display" OFF)
 option(DISPLAY_ST7789_SUPPORT "Enable ST7789 LCD support" OFF)
 option(REMOTE_FS_SUPPORT "Enable Remote FS support" OFF)
 option(BLUETOOTH_KEYBOARD_SUPPORT "Enable Bluetooth LE keyboard support" OFF)
+option(VT100_DISPLAY "Enable VT100 terminal on Waveshare 3.5 display (replaces front panel)" OFF)
 
 # Ensure only one display is enabled at a time
 if(INKY_SUPPORT AND DISPLAY_2_8_SUPPORT)
@@ -98,6 +99,7 @@ target_include_directories(lwipopts_provider INTERFACE ${CMAKE_CURRENT_LIST_DIR}
 
 set(ALTAIR_SOURCES
     main.c
+    ansi_input.c
     wifi.c
     cpu_state.c
     FrontPanels/virtual_monitor.c
@@ -152,6 +154,11 @@ if(WAVESHARE_3_5_DISPLAY)
         drivers/waveshare/ws_ili9488.c
         drivers/waveshare/ws_display.c
     )
+    if(VT100_DISPLAY)
+        list(APPEND ALTAIR_SOURCES
+            FrontPanels/vt100_display.c
+        )
+    endif()
     if(SD_CARD_SUPPORT)
         list(APPEND ALTAIR_SOURCES
             drivers/waveshare/ws_sdcard.c
@@ -198,7 +205,14 @@ if(PICO_CYW43_SUPPORTED)
         PRIVATE ${PICO_WS_SERVER_DIR}/src
     )
 
-    target_compile_definitions(pico_ws_server PUBLIC DEBUG_PRINT=0)
+    # Override submodule's PUBLIC DEBUG_PRINT with PRIVATE to avoid
+    # leaking it to btstack (which redefines it as a function-like macro).
+    get_target_property(_defs pico_ws_server INTERFACE_COMPILE_DEFINITIONS)
+    if(_defs)
+        list(REMOVE_ITEM _defs "DEBUG_PRINT=0")
+        set_target_properties(pico_ws_server PROPERTIES INTERFACE_COMPILE_DEFINITIONS "${_defs}")
+    endif()
+    target_compile_definitions(pico_ws_server PRIVATE DEBUG_PRINT=0)
 
     target_link_libraries(pico_ws_server
         PUBLIC
@@ -254,6 +268,13 @@ endif()
 
 if(WAVESHARE_3_5_DISPLAY)
     target_compile_definitions(altair PRIVATE WAVESHARE_3_5_DISPLAY=1)
+endif()
+
+if(VT100_DISPLAY)
+    if(NOT WAVESHARE_3_5_DISPLAY)
+        message(FATAL_ERROR "VT100_DISPLAY requires WAVESHARE_3_5_DISPLAY to be enabled.")
+    endif()
+    target_compile_definitions(altair PRIVATE VT100_DISPLAY=1)
 endif()
 
 if(WAVESHARE_2_DISPLAY)

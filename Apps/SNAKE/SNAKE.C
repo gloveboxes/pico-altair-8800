@@ -19,157 +19,249 @@
 
 
 /* Timer configuration */
-#define TIMER_ID 2  /* Use timer 2 */
-#define TIMER_MS 50 /* 50ms game loop timer */
+#define T2H 28 /* Timer 2 high byte port */
+#define T2L 29 /* Timer 2 low byte port */
 
-/* Screen Boundaries */
-#define MIN_ROW 6
-#define MAX_ROW 25
-#define MIN_COL 5
-#define MAX_COL 75
+/* Board layout */
+#define BWID 30
+#define BHGT 20
+#define BROW 4
+#define BCOL 17
 
 /* Snake Settings */
-#define MAX_SNAKE_LENGTH 200
-#define INITIAL_LENGTH   3
+#define MAXSNK 200
+#define INILEN 3
 
 /* Game States */
-#define GAME_PLAYING 0
-#define GAME_OVER    1
-#define GAME_QUIT    2
+#define PLAY 0
+#define OVER 8
+#define QUIT 9
 
-/* Directions - using SDK key codes */
-#define DIR_NONE  0
+/* Directions */
+#define D_UP 1
+#define D_DN 2
+#define D_LT 3
+#define D_RT 4
 
 /* Snake body coordinates */
-int sn_row[MAX_SNAKE_LENGTH];
-int sn_col[MAX_SNAKE_LENGTH];
+int sn_row[MAXSNK];
+int sn_col[MAXSNK];
 int sn_len;
 int sn_dir;
 int nxt_dir;
 
 /* Food position */
-int food_row, food_col;
-int food_exists;
+int fd_row, fd_col;
+int fd_ex;
 
 /* Game state */
 int gm_st;
 int score;
 int sp_lvl;
+int escst;
+int escct;
 
 /* Simple counter-based timing */
-int move_counter;
+int mv_cnt;
 
+int inp();
+int outp();
 
 
 /* --- Game Display --- */
 
-int draw_walls()
+int cset(c)
+int c;
 {
-    int i;
-
-    /* Set green color for walls */
-    x_setcol(XC_GRN);
-
-    /* Draw top wall */
-    x_curmv(MIN_ROW - 1, MIN_COL - 1);
-    for (i = MIN_COL - 1; i <= MAX_COL + 1; i++)
-    {
-        putchar('#');
-    }
-
-    /* Draw side walls */
-    for (i = MIN_ROW; i <= MAX_ROW; i++)
-    {
-        x_curmv(i, MIN_COL - 1);
-        putchar('#');
-        x_curmv(i, MAX_COL + 1);
-        putchar('#');
-    }
-
-    /* Draw bottom wall */
-    x_curmv(MAX_ROW + 1, MIN_COL - 1);
-    for (i = MIN_COL - 1; i <= MAX_COL + 1; i++)
-    {
-        putchar('#');
-    }
-
-    /* Reset color */
-    x_rstcol();
+    printf("\033[%dm", c);
     return 0;
 }
 
-int draw_instructions()
+int setbg(c)
+int c;
 {
-    x_curmv(1, 1);
-    puts("Snake Game for Altair 8800 (Enable Character Mode: Ctrl+L)");
-    x_curmv(2, 1);
-    puts("Arrow keys to move, ESC to quit. Don't hit walls or yourself!");
-    x_curmv(3, 1);
-    puts("Eat food (*) to grow and increase score.");
-    x_curmv(4, 1);
-    puts("------------------------------------------------------------------");
+    printf("\033[%dm", c);
     return 0;
 }
 
-int dr_seg(row, col, is_head)
-int row;
-int col;
-int is_head;
+int rst()
 {
-    /* Set red color for snake */
-    x_setcol(XC_RED);
-    x_curmv(row, col);
-    if (is_head)
-    {
-        putchar('O'); /* Head */
-    }
+    printf("\033[0m");
+    return 0;
+}
+
+int tset(ms)
+unsigned ms;
+{
+    char hi, lo;
+
+    hi = ms >> 8;
+    outp(T2H, hi);
+    lo = ms & 0xFF;
+    outp(T2L, lo);
+    return 0;
+}
+
+int texp()
+{
+    return (inp(T2L) == 0);
+}
+
+int scr_r(r)
+int r;
+{
+    return BROW + r + 1;
+}
+
+int scr_c(c)
+int c;
+{
+    return BCOL + c * 2;
+}
+
+int cbg(r, c)
+int r;
+int c;
+{
+    if (((r / 2) + (c / 2)) & 1)
+        return 46;
+    return 45;
+}
+
+int tile(bg)
+int bg;
+{
+    if (bg)
+        setbg(bg);
     else
-    {
-        putchar('o'); /* Body */
-    }
-    /* Reset color */
-    x_rstcol();
-    return 0;
-}
-
-int er_pos(row, col)
-int row;
-int col;
-{
-    x_curmv(row, col);
+        rst();
+    putchar(' ');
     putchar(' ');
     return 0;
 }
 
-int draw_food(row, col)
-int row;
-int col;
+int dr_wal()
 {
-    /* Set blue color for food */
-    x_setcol(XC_BLU);
-    x_curmv(row, col);
-    putchar('*');
-    /* Reset color */
-    x_rstcol();
+    int r;
+    int c;
+    int left;
+
+    left = BCOL - 2;
+    for (r = 0; r < BHGT + 2; r++)
+    {
+        x_curmv(BROW + r, left);
+        for (c = 0; c < BWID + 2; c++)
+        {
+            setbg(cbg(r, c));
+            putchar(' ');
+            putchar(' ');
+        }
+    }
+    rst();
     return 0;
 }
 
-int snake_update_status()
+int dr_fld()
+{
+    int r;
+    int c;
+
+    for (r = 0; r < BHGT; r++)
+    {
+        x_curmv(scr_r(r), scr_c(0));
+        for (c = 0; c < BWID; c++)
+            tile(40);
+    }
+    rst();
+    return 0;
+}
+
+int dr_ins()
+{
+    x_curmv(1, 1);
+    cset(36);
+    puts("SNAKE");
+    rst();
+    puts(" for ");
+    cset(33);
+    puts("Altair 8800");
+    rst();
+    puts(" V2.0");
+
+    x_curmv(2, 1);
+    cset(37);
+    puts("ARROWS Move  ESC/Q Quit  Eat red blocks, avoid the cabinet and yourself");
+    rst();
+    return 0;
+}
+
+int dr_seg(r, c, is_head)
+int r;
+int c;
+int is_head;
+{
+    x_curmv(scr_r(r), scr_c(c));
+    if (is_head)
+        tile(46);
+    else
+        tile(42);
+    return 0;
+}
+
+int er_pos(r, c)
+int r;
+int c;
+{
+    x_curmv(scr_r(r), scr_c(c));
+    tile(40);
+    return 0;
+}
+
+int dr_fod(r, c)
+int r;
+int c;
+{
+    x_curmv(scr_r(r), scr_c(c));
+    tile(41);
+    return 0;
+}
+
+int upd_st()
 {
     x_curmv(5, 1);
+    cset(35);
+    puts("STATUS");
+    rst();
+
+    x_curmv(6, 1);
+    cset(36);
     puts("Score: ");
+    cset(33);
     x_numpr(score);
-    puts("   Length: ");
+    rst();
+    puts("  ");
+
+    x_curmv(7, 1);
+    cset(36);
+    puts("Length: ");
+    cset(33);
     x_numpr(sn_len);
-    puts("   Speed: ");
+    rst();
+    puts("  ");
+
+    x_curmv(8, 1);
+    cset(36);
+    puts("Speed: ");
+    cset(33);
     x_numpr(sp_lvl);
-    puts("                    ");
+    rst();
+    puts("  ");
     return 0;
 }
 
 /* --- Random Number Generation --- */
 
-unsigned get_random()
+unsigned rnd()
 {
     return x_rand();
 }
@@ -193,82 +285,174 @@ int col;
     return 0;
 }
 
-int place_food()
+int hit_sn(row, col, lim)
+int row;
+int col;
+int lim;
 {
-    int attempts;
-    int food_r, food_c;
+    int i;
 
-    attempts = 0;
-    while (attempts < 50)
-    { /* Try up to 50 times */
-        food_r = MIN_ROW + (get_random() % (MAX_ROW - MIN_ROW + 1));
-        food_c = MIN_COL + (get_random() % (MAX_COL - MIN_COL + 1));
+    for (i = 0; i < lim; i++)
+    {
+        if (sn_row[i] == row && sn_col[i] == col)
+            return 1;
+    }
+    return 0;
+}
 
-        if (!is_occ(food_r, food_c))
+int pl_fod()
+{
+    int att;
+    int fdr, fdc;
+    int r, c;
+
+    att = 0;
+    while (att < 200)
+    { /* Try random cells first */
+        fdr = rnd() % BHGT;
+        fdc = rnd() % BWID;
+
+        if (!is_occ(fdr, fdc))
         {
-            food_row    = food_r;
-            food_col    = food_c;
-            food_exists = 1;
-            draw_food(food_row, food_col);
+            fd_row = fdr;
+            fd_col = fdc;
+            fd_ex = 1;
+            dr_fod(fd_row, fd_col);
             return 1;
         }
-        attempts++;
+        att++;
     }
+
+    for (r = 0; r < BHGT; r++)
+    {
+        for (c = 0; c < BWID; c++)
+        {
+            if (!is_occ(r, c))
+            {
+                fd_row = r;
+                fd_col = c;
+                fd_ex = 1;
+                dr_fod(fd_row, fd_col);
+                return 1;
+            }
+        }
+    }
+
     return 0; /* Failed to place food */
 }
 
 /* --- Input Handling --- */
 
-int snake_handle_input()
+int opp(a, b)
+int a;
+int b;
+{
+    if (a == D_UP && b == D_DN) return 1;
+    if (a == D_DN && b == D_UP) return 1;
+    if (a == D_LT && b == D_RT) return 1;
+    if (a == D_RT && b == D_LT) return 1;
+    return 0;
+}
+
+int keymap(k)
+int k;
+{
+    if (escst == 2)
+    {
+        escst = 0;
+        if (k == 'A') return D_UP;
+        if (k == 'B') return D_DN;
+        if (k == 'C') return D_RT;
+        if (k == 'D') return D_LT;
+        return 0;
+    }
+
+    if (escst == 1)
+    {
+        escst = 0;
+        if (k == '[')
+        {
+            escst = 2;
+            return 0;
+        }
+        return QUIT;
+    }
+
+    if (k == 27)
+    {
+        escst = 1;
+        escct = 0;
+        return 0;
+    }
+
+    if (k == 'q' || k == 'Q')
+        return QUIT;
+    if (x_isup(k)) return D_UP;
+    if (x_isdn(k)) return D_DN;
+    if (x_islt(k)) return D_LT;
+    if (x_isrt(k)) return D_RT;
+    return 0;
+}
+
+int inp_hnd()
 {
     int key;
+    int cmd;
 
     key = x_keyrd(); /* Read raw key code no waiting */
     if (!key)
         return 0;
 
-    if (x_isesc(key))
+    cmd = keymap(key);
+
+    if (cmd == QUIT)
     {
-        gm_st = GAME_QUIT;
+        gm_st = QUIT;
         return 1;
     }
 
-    /* Handle direction changes - prevent reversing into self */
-    if (x_isup(key) && sn_dir != XK_DN)
-    {
-        nxt_dir = XK_UP;
-    }
-    else if (x_isdn(key) && sn_dir != XK_UP)
-    {
-        nxt_dir = XK_DN;
-    }
-    else if (x_islt(key) && sn_dir != XK_RT)
-    {
-        nxt_dir = XK_LT;
-    }
-    else if (x_isrt(key) && sn_dir != XK_LT)
-    {
-        nxt_dir = XK_RT;
-    }
+    if (cmd >= D_UP && cmd <= D_RT && !opp(cmd, sn_dir) && !opp(cmd, nxt_dir))
+        nxt_dir = cmd;
 
+    return 0;
+}
+
+int esctik()
+{
+    if (escst == 1)
+    {
+        escct++;
+        if (escct > 2)
+        {
+            escst = 0;
+            gm_st = QUIT;
+        }
+    }
     return 0;
 }
 
 /* --- Game Logic --- */
 
-int init_snake()
+int new_gm()
 {
     int i;
 
-    sn_len  = INITIAL_LENGTH;
-    sn_dir  = XK_RT;
-    nxt_dir = XK_RT;
+    gm_st  = PLAY;
+    score  = 0;
+    sp_lvl = 1;
+    fd_ex  = 0;
+    sn_len  = INILEN;
+    sn_dir  = D_RT;
+    nxt_dir = D_RT;
+    escst   = 0;
+    escct   = 0;
+    mv_cnt  = 0;
 
     /* Place snake in center, moving right */
     for (i = 0; i < sn_len; i++)
     {
-        sn_row[i] = (MIN_ROW + MAX_ROW) / 2;
-        sn_col[i] = (MIN_COL + MAX_COL) / 2 - i;
+        sn_row[i] = BHGT / 2;
+        sn_col[i] = (BWID / 2) - i;
     }
 
     /* Draw initial snake */
@@ -280,104 +464,92 @@ int init_snake()
     return 0;
 }
 
-int move_snake()
+int step()
 {
-    int head_r, head_c;
+    int nr, nc;
     int i;
-    int ate_food;
+    int ate;
+    int lim;
+    int grow;
+    int nlen;
+    int tailr;
+    int tailc;
+    int oldr;
+    int oldc;
 
-    /* Update direction */
     sn_dir = nxt_dir;
 
-    /* Calculate new head position */
-    head_r = sn_row[0];
-    head_c = sn_col[0];
+    nr = sn_row[0];
+    nc = sn_col[0];
 
-    if (sn_dir == XK_UP)
-    {
-        head_r--;
-    }
-    else if (sn_dir == XK_DN)
-    {
-        head_r++;
-    }
-    else if (sn_dir == XK_LT)
-    {
-        head_c--;
-    }
-    else if (sn_dir == XK_RT)
-    {
-        head_c++;
-    }
+    if (sn_dir == D_UP) nr--;
+    if (sn_dir == D_DN) nr++;
+    if (sn_dir == D_LT) nc--;
+    if (sn_dir == D_RT) nc++;
 
-    /* Check wall collision */
-    if (head_r < MIN_ROW || head_r > MAX_ROW || head_c < MIN_COL || head_c > MAX_COL)
+    if (nr < 0 || nr >= BHGT || nc < 0 || nc >= BWID)
     {
-        gm_st = GAME_OVER;
+        gm_st = OVER;
         return 0;
     }
 
-    /* Check self collision */
-    for (i = 0; i < sn_len; i++)
+    ate = 0;
+    if (fd_ex && nr == fd_row && nc == fd_col)
     {
-        if (sn_row[i] == head_r && sn_col[i] == head_c)
-        {
-            gm_st = GAME_OVER;
-            return 0;
-        }
+        ate = 1;
+        fd_ex = 0;
     }
 
-    /* Check food collision */
-    ate_food = 0;
-    if (food_exists && head_r == food_row && head_c == food_col)
+    /* Moving into the old tail is legal unless eating. */
+    lim = sn_len;
+    if (!ate)
+        lim = sn_len - 1;
+    if (hit_sn(nr, nc, lim))
     {
-        ate_food    = 1;
-        food_exists = 0;
+        gm_st = OVER;
+        return 0;
+    }
+
+    grow = 0;
+    if (ate)
+    {
         score += 10;
 
-        /* Increase speed every 50 points */
         if (score % 50 == 0 && sp_lvl < 10)
-        {
             sp_lvl++;
-        }
+
+        if (sn_len < MAXSNK)
+            grow = 1;
     }
 
-    /* Move snake body */
-    if (!ate_food)
-    {
-        /* Erase tail */
-        er_pos(sn_row[sn_len - 1], sn_col[sn_len - 1]);
+    oldr = sn_row[0];
+    oldc = sn_col[0];
+    tailr = sn_row[sn_len - 1];
+    tailc = sn_col[sn_len - 1];
 
-        /* Shift body positions */
-        for (i = sn_len - 1; i > 0; i--)
-        {
-            sn_row[i] = sn_row[i - 1];
-            sn_col[i] = sn_col[i - 1];
-        }
-    }
-    else
+    nlen = sn_len;
+    if (grow)
+        nlen = sn_len + 1;
+
+    for (i = nlen - 1; i > 0; i--)
     {
-        /* Snake grows - shift body and increase length */
-        if (sn_len < MAX_SNAKE_LENGTH)
-        {
-            for (i = sn_len; i > 0; i--)
-            {
-                sn_row[i] = sn_row[i - 1];
-                sn_col[i] = sn_col[i - 1];
-            }
-            sn_len++;
-        }
+        sn_row[i] = sn_row[i - 1];
+        sn_col[i] = sn_col[i - 1];
     }
 
-    /* Set new head position */
-    sn_row[0] = head_r;
-    sn_col[0] = head_c;
+    sn_len = nlen;
+    sn_row[0] = nr;
+    sn_col[0] = nc;
 
-    /* Redraw snake head and body */
-    dr_seg(sn_row[0], sn_col[0], 1); /* Head */
-    if (sn_len > 1)
+    if (!grow)
+        er_pos(tailr, tailc);
+    dr_seg(oldr, oldc, 0);
+    dr_seg(nr, nc, 1);
+
+    if (ate && !fd_ex)
     {
-        dr_seg(sn_row[1], sn_col[1], 0); /* Neck (was head) */
+        if (!pl_fod())
+            gm_st = OVER;
     }
 
     return 1;
@@ -387,17 +559,23 @@ int move_snake()
 
 /* --- Game Over Display --- */
 
-int show_game_over()
+int sh_ovr()
 {
-    x_curmv(15, 30);
+    x_curmv(15, 34);
+    cset(35);
     puts("GAME OVER!");
-    x_curmv(16, 25);
+    rst();
+    x_curmv(16, 31);
+    cset(33);
     puts("Final Score: ");
+    rst();
     x_numpr(score);
-    x_curmv(17, 25);
+    x_curmv(17, 31);
+    cset(33);
     puts("Final Length: ");
+    rst();
     x_numpr(sn_len);
-    x_curmv(18, 25);
+    x_curmv(18, 31);
     puts("Press ESC to quit");
     return 0;
 }
@@ -407,77 +585,67 @@ int show_game_over()
 int main()
 {
     int key;
-    int move_delay;
-
-    /* Initialize game state */
-    gm_st       = GAME_PLAYING;
-    score       = 0;
-    sp_lvl      = 1;
-    food_exists = 0;
-
-
+    int mv_del;
 
     /* Set up display */
     x_clrsc();
     x_hidcr();
-    draw_instructions();
-    draw_walls();
+    dr_ins();
+    dr_wal();
+    dr_fld();
 
-    /* Initialize snake */
-    init_snake();
+    /* Initialize game */
+    new_gm();
 
     /* Place first food */
-    place_food();
+    pl_fod();
 
     /* Initial status display */
-    snake_update_status();
+    upd_st();
 
-    move_counter = 0;
-    x_tmrset(TIMER_ID, 20); /* Set timer for main loop - 20ms like game.c */
+    mv_cnt = 0;
+    tset(20); /* Set timer for main loop - 20ms like game.c */
 
     /* Main game loop */
-    while (gm_st == GAME_PLAYING)
+    while (gm_st == PLAY)
     {
         /* Handle input every cycle */
-        snake_handle_input();
+        inp_hnd();
         
-        if (gm_st != GAME_PLAYING)
+        if (gm_st != PLAY)
             break;
 
         /* Use counter-based movement timing */
-        if (x_tmrexp(TIMER_ID))
+        if (texp())
         {
-            move_counter++;
+            mv_cnt++;
+            esctik();
+            if (gm_st != PLAY)
+                break;
             
             /* Move snake every N cycles based on speed level */
             {
-                move_delay = 10 - sp_lvl; /* Starts at 10, gets faster */
-                if (move_delay < 4) move_delay = 4; /* Minimum delay */
+                mv_del = 10 - sp_lvl; /* Starts at 10, gets faster */
+                if (mv_del < 4) mv_del = 4; /* Minimum delay */
                 
-                if (move_counter >= move_delay)
+                if (mv_cnt >= mv_del)
                 {
-                    move_snake();
-                    move_counter = 0;
-                    
-                    /* Place new food if needed */
-                    if (!food_exists && gm_st == GAME_PLAYING)
-                    {
-                        place_food();
-                    }
-                    
+                    step();
+                    mv_cnt = 0;
+
                     /* Update status display */
-                    snake_update_status();
+                    upd_st();
                 }
             }
 
-            x_tmrset(TIMER_ID, 20); /* Reset 20ms timer like game.c */
+            tset(20); /* Reset 20ms timer like game.c */
         }
     }
 
     /* Game over or quit */
-    if (gm_st == GAME_OVER)
+    if (gm_st == OVER)
     {
-        show_game_over();
+        sh_ovr();
 
         /* Wait for quit key */
         while (1)
@@ -485,11 +653,13 @@ int main()
             key = x_keyrd(); /* Read raw key code no waiting */
             if (key && x_isesc(key))
                 break;
+            if (key == 'q' || key == 'Q')
+                break;
         }
     }
 
     /* Cleanup */
-    x_curmv(27, 1);
+    x_curmv(26, 1);
     x_shwcr();
     puts("Thanks for playing Snake!\r\n");
 

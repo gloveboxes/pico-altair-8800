@@ -10,7 +10,7 @@
  * 2. Symbols (VERY IMPORTANT):
  *    - All symbol names (functions, variables, labels, statics, globals)
  *      must be unique in their first 7 characters
- *    - Prefer short, descriptive names, e.g. "x_delay", "x_tmrset"
+ *    - Prefer short, descriptive names, e.g. "x_delay", "x_tset"
  *    - Avoid underscores beyond the leading "x_" unless necessary
  *    - Do not exceed 7 characters for clarity and linker safety
  *
@@ -121,10 +121,10 @@ unsigned ms;
 }
 
 /* ------------------------------------------------------- */
-/* x_tmrset(timer, ms) - Start non-blocking timer for given milliseconds.
+/* x_tset(timer, ms) - Start non-blocking timer for given milliseconds.
  * timer: 0-2, ms: delay in milliseconds
  */
-int x_tmrset(timer, ms) int timer;
+int x_tset(timer, ms) int timer;
 unsigned ms;
 {
     char hi_byte, lo_byte;
@@ -150,11 +150,11 @@ unsigned ms;
 }
 
 /* ------------------------------------------------------- */
-/* x_tmrexp(timer) - Check if non-blocking timer has expired.
+/* x_texp(timer) - Check if non-blocking timer has expired.
  * timer: 0-2
  * Returns 1 (true) if expired, 0 (false) if still running, 1 (true) if invalid timer.
  */
-int x_tmrexp(timer) int timer;
+int x_texp(timer) int timer;
 {
     int lo_port;
 
@@ -168,11 +168,11 @@ int x_tmrexp(timer) int timer;
     return inp(lo_port) == 0; /* 0 if running, non-zero if expired */
 }
 
-/* x_tmract(timer) - Check if non-blocking timer is active.
+/* x_tact(timer) - Check if non-blocking timer is active.
  * timer: 0-2
  * Returns non-zero if active/running, 0 if expired, -1 if invalid timer.
  */
-int x_tmract(timer) int timer;
+int x_tact(timer) int timer;
 {
     int lo_port;
 

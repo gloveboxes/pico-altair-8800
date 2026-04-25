@@ -10,7 +10,7 @@
  * 2. Symbols (VERY IMPORTANT):
  *    - All symbol names (functions, variables, labels, statics, globals)
  *      must be unique in their first 7 characters
- *    - Prefer short, descriptive names, e.g. "x_delay", "x_tmrset"
+ *    - Prefer short, descriptive names, e.g. "x_delay", "x_tset"
  *    - Avoid underscores beyond the leading "x_" unless necessary
  *    - Do not exceed 7 characters for clarity and linker safety
  *
@@ -96,12 +96,12 @@ int x_shwcr()
     return 0;
 }
 
-int x_conin() /* Console input is available wait */
+int x_conin() /* Read one char from console (blocking) */
 {
     return (bdos(1) & 0xFF);
 }
 
-int x_conout(code) /* Console output */
+int x_cout(code) /* Write one char to console */
 int code;
 {
     return bdos(2, code);
@@ -134,11 +134,11 @@ int code;
     return (code == XK_ESC);
 }
 
-/* x_isctrlc(code) - Return non-zero if code is Ctrl-C. */
-int x_isctrlc(code)
+/* x_iscc(code) - Return non-zero if code is Ctrl-C. */
+int x_iscc(code)
 int code;
 {
-    return (code == XK_CTRL_C);
+    return (code == XK_CC);
 }
 
 /* x_isup(code) - Return non-zero if code is Up arrow. */
@@ -176,24 +176,70 @@ int code;
     return (code == XK_SPC);
 }
 
-/* x_setcol(code) - Set foreground color using ANSI code. */
-int x_setcol(code)
+/* x_setc(code) - Set foreground color using ANSI code. */
+int x_setc(code)
 int code;
 {
     printf("\033[%dm", code);
     return 0;
 }
 
-/* x_rstcol() - Reset all color and text attributes. */
-int x_rstcol()
+/* x_rstc() - Reset all color and text attributes. */
+int x_rstc()
 {
     printf("\033[0m");
     return 0;
 }
 
-/* x_erseol() - Erase from cursor to end of line. */
-int x_erseol()
+/* x_ereol() - Erase from cursor to end of line. */
+int x_ereol()
 {
     printf("\033[K");
+    return 0;
+}
+
+/* x_csav() - Save cursor position. */
+int x_csav()
+{
+    printf("\033[s");
+    return 0;
+}
+
+/* x_crst() - Restore cursor position. */
+int x_crst()
+{
+    printf("\033[u");
+    return 0;
+}
+
+/* x_cup(n) - Move cursor up n rows. */
+int x_cup(n)
+int n;
+{
+    printf("\033[%dA", n);
+    return 0;
+}
+
+/* x_cdn(n) - Move cursor down n rows. */
+int x_cdn(n)
+int n;
+{
+    printf("\033[%dB", n);
+    return 0;
+}
+
+/* x_crt(n) - Move cursor right n columns. */
+int x_crt(n)
+int n;
+{
+    printf("\033[%dC", n);
+    return 0;
+}
+
+/* x_clt(n) - Move cursor left n columns. */
+int x_clt(n)
+int n;
+{
+    printf("\033[%dD", n);
     return 0;
 }
