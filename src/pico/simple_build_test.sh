@@ -5,8 +5,8 @@
 # performance issues in the heavy cyw43/lwIP/mbedtls/pioasm build path.
 #
 # Usage:
-#   ./simple_build_test.sh
-#   BUILD_DIR=build-test-parallel ./simple_build_test.sh
+#   ./src/pico/simple_build_test.sh
+#   BUILD_DIR=build/pico-test-parallel ./src/pico/simple_build_test.sh
 #   PARALLEL_LEVELS="4 6 8 12" ./simple_build_test.sh
 #   RUNS_PER_LEVEL=2 ./simple_build_test.sh
 #
@@ -24,9 +24,10 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "$REPO_ROOT"
 
-BUILD_DIR="${BUILD_DIR:-build-test-parallel}"
+BUILD_DIR="${BUILD_DIR:-build/pico-test-parallel}"
 RUNS_PER_LEVEL="${RUNS_PER_LEVEL:-1}"
 PARALLEL_LEVELS_STRING="${PARALLEL_LEVELS:-4 6 8 12}"
 
@@ -87,7 +88,7 @@ run_case() {
   local run_number="$2"
   local configure_ms build_ms total_ms
   local configure_start_ms configure_end_ms build_start_ms build_end_ms total_start_ms total_end_ms
-  local log_file="${SCRIPT_DIR}/tests/simple-build-logs/build_j${jobs}_run${run_number}.log"
+  local log_file="${REPO_ROOT}/build/pico-simple-build-logs/build_j${jobs}_run${run_number}.log"
 
   echo -e "${YELLOW}Run ${run_number}, parallel=${jobs}: cleaning ${BUILD_DIR}${NC}" >&2
   rm -rf "$BUILD_DIR"
@@ -95,7 +96,7 @@ run_case() {
   total_start_ms="$(now_ms)"
 
   configure_start_ms="$(now_ms)"
-  cmake -S . -B "$BUILD_DIR" -G Ninja "${CMAKE_OPTS[@]}" 2>&1 | tee "$log_file" >&2
+  cmake -S "$REPO_ROOT" -B "$BUILD_DIR" -G Ninja "${CMAKE_OPTS[@]}" 2>&1 | tee "$log_file" >&2
   configure_end_ms="$(now_ms)"
   configure_ms=$((configure_end_ms - configure_start_ms))
 
@@ -114,7 +115,7 @@ print_banner() {
   printf "%b\n" "$1"
 }
 
-mkdir -p "${SCRIPT_DIR}/tests/simple-build-logs"
+mkdir -p "${REPO_ROOT}/build/pico-simple-build-logs"
 
 IFS=' ' read -r -a PARALLEL_LEVELS <<< "$PARALLEL_LEVELS_STRING"
 
@@ -184,7 +185,7 @@ for jobs in "${PARALLEL_LEVELS[@]}"; do
   echo ""
 done
 
-REPORT_FILE="${SCRIPT_DIR}/tests/simple-build-logs/parallel_benchmark_report.txt"
+REPORT_FILE="${REPO_ROOT}/build/pico-simple-build-logs/parallel_benchmark_report.txt"
 
 {
   echo "================================="
@@ -228,4 +229,4 @@ done
 
 echo ""
 echo -e "Report saved to: ${REPORT_FILE}"
-echo -e "Logs saved to: ${SCRIPT_DIR}/tests/simple-build-logs"
+echo -e "Logs saved to: ${REPO_ROOT}/build/pico-simple-build-logs"

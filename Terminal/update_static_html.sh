@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 HTML_FILE="${SCRIPT_DIR}/index.html"
 GZIP_FILE="${REPO_ROOT}/static.html.gz"
-HEADER_FILE="${REPO_ROOT}/static_html_hex.h"
+HEADER_FILE="${REPO_ROOT}/src/pico/static_html_hex.h"
 
 if ! command -v gzip >/dev/null 2>&1; then
   echo "Error: gzip is required but not installed." >&2

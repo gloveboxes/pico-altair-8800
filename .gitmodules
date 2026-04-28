@@ -1,6 +1,6 @@
-[submodule "lib/pico-ws-server"]
-	path = lib/pico-ws-server
+[submodule "src/pico/lib/pico-ws-server"]
+	path = src/pico/lib/pico-ws-server
 	url = https://github.com/cadouthat/pico-ws-server.git
-[submodule "lib/pimoroni-pico"]
-	path = lib/pimoroni-pico
+[submodule "src/pico/lib/pimoroni-pico"]
+	path = src/pico/lib/pimoroni-pico
 	url = https://github.com/pimoroni/pimoroni-pico.git

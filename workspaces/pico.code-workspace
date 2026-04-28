@@ -1,0 +1,28 @@
+{
+  "folders": [
+    {
+      "name": "Altair 8800 Shared",
+      "path": ".."
+    },
+    {
+      "name": "Pico Source",
+      "path": "../src/pico"
+    }
+  ],
+  "settings": {
+    "cmake.generator": "Ninja",
+    "cmake.useCMakePresets": "always",
+    "cmake.configurePreset": "pico-release",
+    "cmake.buildPreset": "pico-release",
+    "cmake.sourceDirectory": "${workspaceFolder:Altair 8800 Shared}",
+    "cmake.buildDirectory": "${workspaceFolder:Altair 8800 Shared}/build/pico",
+    "cmake.configureOnOpen": true,
+    "C_Cpp.default.compileCommands": "${workspaceFolder:Altair 8800 Shared}/build/pico/compile_commands.json",
+    "files.associations": {
+      "stdio.h": "c",
+      "list": "cpp",
+      "__verbose_abort": "c",
+      "cstdio": "c"
+    }
+  }
+}

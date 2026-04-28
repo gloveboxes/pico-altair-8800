@@ -8,10 +8,11 @@
             "intelliSenseMode": "macos-clang-x64",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/build",
+                "${workspaceFolder}/src/pico/**",
+                "${workspaceFolder}/build/pico",
                 "/Users/dave/GitHub/pico/pico-sdk/**"
             ],
-            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+            "compileCommands": "${workspaceFolder}/build/pico/compile_commands.json"
         }
     ],
     "version": 4

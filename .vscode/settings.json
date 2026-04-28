@@ -1,6 +1,9 @@
 {
   "cmake.generator": "Ninja",
-  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.useCMakePresets": "always",
+  "cmake.configurePreset": "pico-release",
+  "cmake.buildPreset": "pico-release",
+  "cmake.buildDirectory": "${workspaceFolder}/build/pico",
   "cmake.configureOnOpen": true,
   "files.associations": {
     "stdio.h": "c",

@@ -1,0 +1,37 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "pico-release",
+      "displayName": "Pico Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/pico",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PICO_BOARD": "pico2_w"
+      }
+    },
+    {
+      "name": "pico-debug",
+      "displayName": "Pico Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/pico-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PICO_BOARD": "pico2_w"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "pico-release",
+      "displayName": "Pico Release",
+      "configurePreset": "pico-release"
+    },
+    {
+      "name": "pico-debug",
+      "displayName": "Pico Debug",
+      "configurePreset": "pico-debug"
+    }
+  ]
+}

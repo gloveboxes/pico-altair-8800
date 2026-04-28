@@ -218,7 +218,7 @@ If you see "Failed to mount SD card, error: X":
 `PICO_BOARD` now defaults to `pico2_w` (RP2350 Pico 2 W). Override it when configuring to target the non-W version or other boards:
 
 ```shell
-cmake -B build -DPICO_BOARD=pico2 [...other flags...]
+cmake -S . -B build/pico -DPICO_BOARD=pico2 [...other flags...]
 ```
 
 - Non-W boards (e.g., `pico2`) do not have a CYW43 radio, so leave `-DALTAIR_ENABLE_WEBSOCKET=OFF` for a USB-only firmware.
@@ -342,13 +342,13 @@ cmake .. -DREMOTE_FS_SUPPORT=ON \
 
 ## Rebuild for Performance
 
-cmake -B build -DCMAKE_BUILD_TYPE=Release regenerated the build directory with CMAKE_BUILD_TYPE explicitly set to Release (confirmed by the “Build type is Release” line). That enables the Pico SDK’s release optimization flags (-O3, no extra debug helpers).
-cmake --build build then rebuilt everything with those settings. The log shows only Release-config targets being built and the final altair.elf linked successfully with no errors—just the usual picotool fetch/install noise and a warning about duplicate errors/liberrors.a, which the SDK always emits.
+cmake -S . -B build/pico -DCMAKE_BUILD_TYPE=Release regenerates the Pico build directory with CMAKE_BUILD_TYPE explicitly set to Release (confirmed by the “Build type is Release” line). That enables the Pico SDK’s release optimization flags (-O3, no extra debug helpers).
+cmake --build build/pico rebuilds everything with those settings. The log should show Release-config targets being built and the final altair.elf linked successfully with no errors—just the usual picotool fetch/install noise and a warning about duplicate errors/liberrors.a, which the SDK always emits.
 
 
 ```shell
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake -S . -B build/pico -DCMAKE_BUILD_TYPE=Release
+cmake --build build/pico
 ```
 
 ## Deploying Firmware
@@ -424,13 +424,13 @@ You can also build for specific boards from the command line:
 
 ```shell
 # Build for Pico W
-rm -rf build && cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico_w && cmake --build build -- -j
+rm -rf build/pico && cmake -S . -B build/pico -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico_w && cmake --build build/pico -- -j
 
 # Build for Pico 2
-rm -rf build && cmake -B build -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2 && cmake --build build -- -j
+rm -rf build/pico && cmake -S . -B build/pico -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico2 && cmake --build build/pico -- -j
 
 # Build for all boards
-./build_all_boards.sh
+./src/pico/build_all_boards.sh
 ```
 
 

@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 
+set(ALTAIR_REPO_ROOT ${CMAKE_CURRENT_LIST_DIR})
+set(ALTAIR_PICO_DIR ${CMAKE_CURRENT_LIST_DIR}/src/pico)
+
 # 💡 Select board BEFORE importing SDK (safer)
 if(NOT DEFINED PICO_BOARD)
     set(PICO_BOARD "pico2_w" CACHE STRING "Target Pico board (e.g., pico, pico_w, pico2, pico2_w, pimoroni_pico_plus2_w_rp2350)" FORCE)
@@ -54,15 +57,15 @@ pico_sdk_init()
 
 # Import Pimoroni Pico libraries if Inky or Display 2.8 support is enabled
 if(INKY_SUPPORT OR DISPLAY_2_8_SUPPORT OR SD_CARD_SUPPORT)
-    set(PIMORONI_PICO_PATH ${CMAKE_CURRENT_LIST_DIR}/lib/pimoroni-pico)
-    include(${CMAKE_CURRENT_LIST_DIR}/lib/pimoroni-pico/pimoroni_pico_import.cmake)
+    set(PIMORONI_PICO_PATH ${ALTAIR_PICO_DIR}/lib/pimoroni-pico)
+    include(${ALTAIR_PICO_DIR}/lib/pimoroni-pico/pimoroni_pico_import.cmake)
     
     # Add local sdcard/fatfs drivers BEFORE pimoroni-pico drivers
     # This ensures our local copies are used instead of the submodule versions
     # (the cmake files use "if (NOT TARGET ...)" guards so first definition wins)
     if(SD_CARD_SUPPORT)
-        add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/drivers/fatfs local-drivers/fatfs)
-        add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/drivers/sdcard local-drivers/sdcard)
+        add_subdirectory(${ALTAIR_PICO_DIR}/drivers/fatfs local-drivers/fatfs)
+        add_subdirectory(${ALTAIR_PICO_DIR}/drivers/sdcard local-drivers/sdcard)
     endif()
     
     # Only build the drivers and libraries we need, not examples
@@ -78,8 +81,8 @@ if(INKY_SUPPORT OR DISPLAY_2_8_SUPPORT OR SD_CARD_SUPPORT)
 endif()
 
 # Generate build version header
-set(VERSION_FILE ${CMAKE_CURRENT_LIST_DIR}/build_version.txt)
-set(TEMPLATE_FILE ${CMAKE_CURRENT_LIST_DIR}/build_version.h.in)
+set(VERSION_FILE ${ALTAIR_PICO_DIR}/build_version.txt)
+set(TEMPLATE_FILE ${ALTAIR_PICO_DIR}/build_version.h.in)
 set(OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/build_version.h)
 
 add_custom_target(generate_version
@@ -88,33 +91,33 @@ add_custom_target(generate_version
         -DTEMPLATE_FILE=${TEMPLATE_FILE}
         -DOUTPUT_FILE=${OUTPUT_FILE}
         $<$<BOOL:${SKIP_VERSION_INCREMENT}>:-DSKIP_VERSION_INCREMENT=1>
-        -P ${CMAKE_CURRENT_LIST_DIR}/generate_version.cmake
+        -P ${ALTAIR_PICO_DIR}/generate_version.cmake
     BYPRODUCTS ${OUTPUT_FILE}
     COMMENT "Generating build version header"
     VERBATIM
 )
 
 add_library(lwipopts_provider INTERFACE)
-target_include_directories(lwipopts_provider INTERFACE ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(lwipopts_provider INTERFACE ${ALTAIR_PICO_DIR})
 
 set(ALTAIR_SOURCES
-    main.c
-    ansi_input.c
-    wifi.c
-    cpu_state.c
-    FrontPanels/virtual_monitor.c
-    FrontPanels/inky_display.cpp
-    i8080_disasm.c
-    Altair8800/intel8080.c
-    Altair8800/memory.c
-    io_ports.c
-    PortDrivers/time_io.c
-    PortDrivers/utility_io.c
-    PortDrivers/files_io.c
-    PortDrivers/stats_io.c
-    websocket_console.c
-    config.c
-    core1_io_mgr.c
+    ${ALTAIR_PICO_DIR}/main.c
+    ${ALTAIR_REPO_ROOT}/ansi_input.c
+    ${ALTAIR_PICO_DIR}/wifi.c
+    ${ALTAIR_PICO_DIR}/cpu_state.c
+    ${ALTAIR_PICO_DIR}/FrontPanels/virtual_monitor.c
+    ${ALTAIR_PICO_DIR}/FrontPanels/inky_display.cpp
+    ${ALTAIR_PICO_DIR}/i8080_disasm.c
+    ${ALTAIR_REPO_ROOT}/Altair8800/intel8080.c
+    ${ALTAIR_REPO_ROOT}/Altair8800/memory.c
+    ${ALTAIR_PICO_DIR}/io_ports.c
+    ${ALTAIR_REPO_ROOT}/PortDrivers/time_io.c
+    ${ALTAIR_REPO_ROOT}/PortDrivers/utility_io.c
+    ${ALTAIR_REPO_ROOT}/PortDrivers/files_io.c
+    ${ALTAIR_REPO_ROOT}/PortDrivers/stats_io.c
+    ${ALTAIR_PICO_DIR}/websocket_console.c
+    ${ALTAIR_PICO_DIR}/config.c
+    ${ALTAIR_PICO_DIR}/core1_io_mgr.c
 )
 
 if(BLUETOOTH_KEYBOARD_SUPPORT)
@@ -123,46 +126,46 @@ if(BLUETOOTH_KEYBOARD_SUPPORT)
     endif()
 
     list(APPEND ALTAIR_SOURCES
-        drivers/bluetooth/bt_keyboard.c
+        ${ALTAIR_PICO_DIR}/drivers/bluetooth/bt_keyboard.c
     )
 endif()
 
 # Conditionally add Display 2.8 sources
 if(DISPLAY_2_8_SUPPORT)
     list(APPEND ALTAIR_SOURCES
-        FrontPanels/display_2_8.c
-        FrontPanels/st7789_async.c
+        ${ALTAIR_PICO_DIR}/FrontPanels/display_2_8.c
+        ${ALTAIR_PICO_DIR}/FrontPanels/st7789_async.c
     )
 endif()
 
 # Conditionally add ST7789 Display sources
 if(DISPLAY_ST7789_SUPPORT)
     list(APPEND ALTAIR_SOURCES
-        FrontPanels/display_st7789.c
+        ${ALTAIR_PICO_DIR}/FrontPanels/display_st7789.c
     )
     if(WAVESHARE_2_DISPLAY)
-        list(APPEND ALTAIR_SOURCES FrontPanels/st7789vw_async.c)
+        list(APPEND ALTAIR_SOURCES ${ALTAIR_PICO_DIR}/FrontPanels/st7789vw_async.c)
     else()
-        list(APPEND ALTAIR_SOURCES FrontPanels/st7789_async.c)
+        list(APPEND ALTAIR_SOURCES ${ALTAIR_PICO_DIR}/FrontPanels/st7789_async.c)
     endif()
 endif()
 
 # Conditionally add Waveshare 3.5" display + SD drivers
 if(WAVESHARE_3_5_DISPLAY)
     list(APPEND ALTAIR_SOURCES
-        drivers/waveshare/ws_spi1_bus.c
-        drivers/waveshare/ws_ili9488.c
-        drivers/waveshare/ws_display.c
+        ${ALTAIR_PICO_DIR}/drivers/waveshare/ws_spi1_bus.c
+        ${ALTAIR_PICO_DIR}/drivers/waveshare/ws_ili9488.c
+        ${ALTAIR_PICO_DIR}/drivers/waveshare/ws_display.c
     )
     if(VT100_DISPLAY)
         list(APPEND ALTAIR_SOURCES
-            FrontPanels/vt100_display.c
+            ${ALTAIR_PICO_DIR}/FrontPanels/vt100_display.c
         )
     endif()
     if(SD_CARD_SUPPORT)
         list(APPEND ALTAIR_SOURCES
-            drivers/waveshare/ws_sdcard.c
-            drivers/waveshare/ws_fatfs.c
+            ${ALTAIR_PICO_DIR}/drivers/waveshare/ws_sdcard.c
+            ${ALTAIR_PICO_DIR}/drivers/waveshare/ws_fatfs.c
         )
     endif()
 endif()
@@ -171,23 +174,23 @@ endif()
 # Conditionally add disk controller based on SD card support
 if(SD_CARD_SUPPORT)
     if(WAVESHARE_3_5_DISPLAY)
-        list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card_ws.c)
+        list(APPEND ALTAIR_SOURCES ${ALTAIR_PICO_DIR}/Altair8800/pico_88dcdd_sd_card_ws.c)
     else()
-        list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_sd_card.c)
+        list(APPEND ALTAIR_SOURCES ${ALTAIR_PICO_DIR}/Altair8800/pico_88dcdd_sd_card.c)
     endif()
 elseif(REMOTE_FS_SUPPORT)
     list(APPEND ALTAIR_SOURCES 
-        Altair8800/pico_88dcdd_remote_fs.c
-        Altair8800/remote_fs.c
+        ${ALTAIR_PICO_DIR}/Altair8800/pico_88dcdd_remote_fs.c
+        ${ALTAIR_PICO_DIR}/Altair8800/remote_fs.c
     )
 else()
-    list(APPEND ALTAIR_SOURCES Altair8800/pico_88dcdd_flash.c)
+    list(APPEND ALTAIR_SOURCES ${ALTAIR_PICO_DIR}/Altair8800/pico_88dcdd_flash.c)
 endif()
 
 set(ALTAIR_LIBS)
 
 if(PICO_CYW43_SUPPORTED)
-    set(PICO_WS_SERVER_DIR ${CMAKE_CURRENT_LIST_DIR}/lib/pico-ws-server)
+    set(PICO_WS_SERVER_DIR ${ALTAIR_PICO_DIR}/lib/pico-ws-server)
 
     add_library(pico_ws_server
         ${PICO_WS_SERVER_DIR}/src/client_connection.cpp
@@ -201,7 +204,8 @@ if(PICO_CYW43_SUPPORTED)
 
     target_include_directories(pico_ws_server BEFORE
         PUBLIC ${PICO_WS_SERVER_DIR}/include
-        PUBLIC ${CMAKE_CURRENT_LIST_DIR}
+        PUBLIC ${ALTAIR_PICO_DIR}
+        PUBLIC ${ALTAIR_REPO_ROOT}
         PRIVATE ${PICO_WS_SERVER_DIR}/src
     )
 
@@ -224,8 +228,8 @@ if(PICO_CYW43_SUPPORTED)
     )
 
     list(APPEND ALTAIR_SOURCES 
-        ws.cpp
-        captive_portal/captive_portal.c
+        ${ALTAIR_PICO_DIR}/ws.cpp
+        ${ALTAIR_PICO_DIR}/captive_portal/captive_portal.c
         ${PICO_SDK_PATH}/lib/lwip/src/apps/http/http_client.c
     )
     list(APPEND ALTAIR_LIBS pico_ws_server pico_lwip_mdns)
@@ -300,13 +304,15 @@ endif()
 
 # Make sure all CYW43 headers are visible and include Altair8800 directory
 target_include_directories(altair PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/Altair8800
-    ${CMAKE_CURRENT_LIST_DIR}/PortDrivers
-    ${CMAKE_CURRENT_LIST_DIR}/FrontPanels
-    ${CMAKE_CURRENT_LIST_DIR}/drivers/bluetooth
-    ${CMAKE_CURRENT_LIST_DIR}/drivers/waveshare
-    ${CMAKE_CURRENT_LIST_DIR}/captive_portal
+    ${ALTAIR_PICO_DIR}
+    ${ALTAIR_REPO_ROOT}
+    ${ALTAIR_PICO_DIR}/Altair8800
+    ${ALTAIR_REPO_ROOT}/Altair8800
+    ${ALTAIR_REPO_ROOT}/PortDrivers
+    ${ALTAIR_PICO_DIR}/FrontPanels
+    ${ALTAIR_PICO_DIR}/drivers/bluetooth
+    ${ALTAIR_PICO_DIR}/drivers/waveshare
+    ${ALTAIR_PICO_DIR}/captive_portal
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 

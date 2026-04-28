@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Script to build Altair for all supported Pico boards
-# Usage: ./build_all_boards.sh
+# Usage: ./src/pico/build_all_boards.sh
 
 
 set -e  # Exit on error
@@ -34,7 +34,9 @@ PY
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+BUILD_DIR="${REPO_ROOT}/build/pico"
+cd "$REPO_ROOT"
 
 # Increment build version once at the start
 VERSION_FILE="${SCRIPT_DIR}/build_version.txt"
@@ -55,7 +57,7 @@ echo ""
 BOARDS=("pico2" "pico2_w_rfs" "pico2_w_sd" "pico2_w_vt100_sd_bt" "pimoroni_pico_plus2_w_rp2350" "pimoroni_pico_plus2_w_rp2350_sd" "pimoroni_pico_plus2_w_rp2350_waveshare2_rfs" "pico2_w_display28_rfs" "pico2_w_waveshare2_rfs" "pico_w_rfs")
 
 # Create tests directory (clean slate)
-TESTS_DIR="${SCRIPT_DIR}/tests"
+TESTS_DIR="${REPO_ROOT}/build/pico-board-tests"
 if [ -d "$TESTS_DIR" ]; then
     echo -e "${YELLOW}Cleaning old test artifacts...${NC}"
     rm -rf "$TESTS_DIR"
@@ -70,7 +72,8 @@ echo ""
 
 # Clean up old releases
 echo -e "${YELLOW}Cleaning up old releases...${NC}"
-rm -f "${SCRIPT_DIR}/Releases/"*.uf2
+mkdir -p "${REPO_ROOT}/Releases"
+rm -f "${REPO_ROOT}/Releases/"*.uf2
 echo ""
 
 # Track build results (using simple arrays as fallback for zsh compatibility)
@@ -92,7 +95,7 @@ for BOARD in "${BOARDS[@]}"; do
 
     # Clean and build (skip version increment since we did it once at the start)
     RM_START_MS=$(now_ms)
-    rm -rf build
+    rm -rf "$BUILD_DIR"
     RM_END_MS=$(now_ms)
     RM_TIME_MS=$((RM_END_MS - RM_START_MS))
 
@@ -153,12 +156,12 @@ for BOARD in "${BOARDS[@]}"; do
     fi
 
     CONFIGURE_START_MS=$(now_ms)
-    if cmake -B build -G Ninja $CMAKE_OPTS; then
+    if cmake -S "$REPO_ROOT" -B "$BUILD_DIR" -G Ninja $CMAKE_OPTS; then
         CONFIGURE_END_MS=$(now_ms)
         CONFIGURE_TIME_MS=$((CONFIGURE_END_MS - CONFIGURE_START_MS))
 
         COMPILE_START_MS=$(now_ms)
-        if cmake --build build --parallel "$BUILD_JOBS"; then
+        if cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"; then
             COMPILE_END_MS=$(now_ms)
             COMPILE_TIME_MS=$((COMPILE_END_MS - COMPILE_START_MS))
 
@@ -174,8 +177,8 @@ for BOARD in "${BOARDS[@]}"; do
             BOARD_DIR="${TESTS_DIR}/${BOARD}"
             mkdir -p "$BOARD_DIR"
 
-            if [ -f "build/altair.uf2" ]; then
-                cp build/altair.uf2 "${BOARD_DIR}/altair_${BOARD}.uf2"
+            if [ -f "${BUILD_DIR}/altair.uf2" ]; then
+                cp "${BUILD_DIR}/altair.uf2" "${BOARD_DIR}/altair_${BOARD}.uf2"
                 # Only keep UF2 for release builds
                 # cp build/altair.elf "${BOARD_DIR}/altair_${BOARD}.elf"
                 # cp build/altair.dis "${BOARD_DIR}/altair_${BOARD}.dis" 2>/dev/null || true

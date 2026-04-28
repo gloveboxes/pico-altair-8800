@@ -15,17 +15,20 @@ When you make changes to `index.html`, you **must** regenerate the static HTML h
 
 1. Make your changes to `index.html` or other web assets
 2. Run the update script from this directory:
+
    ```bash
    ./update_static_html.sh
    ```
-3. This will generate a new `../static_html_hex.h` header file containing the HTML as a C byte array
+
+3. This will generate a new `../src/pico/static_html_hex.h` header file containing the HTML as a C byte array
 4. Rebuild the firmware to include the updated web interface
 
 ### What the Script Does
 
 The `update_static_html.sh` script:
+
 - Converts `index.html` into a hexadecimal byte array
-- Generates the `static_html_hex.h` header file in the parent directory
+- Generates the `static_html_hex.h` header file in the Pico source directory
 - This header is included during compilation so the HTML is embedded in the firmware
 
 ### Important Notes
