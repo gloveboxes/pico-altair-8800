@@ -23,6 +23,16 @@ cmake -S local_altair -B local_altair/build-msvc-arm64 -G "Visual Studio 17 2022
 cmake --build local_altair/build-msvc-arm64 --config Release
 ```
 
+For the full Windows host-tool build flow, including `local_altair` and `mcp_app_build_server`, run the shared helper from the repo root or the `scripts` folder:
+
+```powershell
+.\scripts\build-host-tools-windows.cmd
+```
+
+That script builds both Windows host binaries and writes the `local_altair` output to the matching MSVC build folder.
+
+Build the executable once with the commands above or with `scripts\build-host-tools-windows.cmd`. The VS Code task `start local altair - Windows` only launches the already-built executable and does not rebuild it.
+
 Run:
 
 ```sh
@@ -33,6 +43,18 @@ On Windows, run the generated executable from the matching build configuration, 
 
 ```powershell
 .\local_altair\build-msvc\Release\altair-local.exe
+```
+
+On Windows on Arm64, run:
+
+```powershell
+.\local_altair\build-msvc-arm64\Release\altair-local.exe
+```
+
+The launch helper used by the VS Code task is:
+
+```powershell
+.\scripts\start-local-altair-windows.cmd
 ```
 
 Windows amd64 requirements:

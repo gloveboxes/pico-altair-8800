@@ -17,7 +17,7 @@
             "args": [
                 "/d",
                 "/c",
-                "${workspaceFolder}/local_altair/start-local-altair-windows.cmd"
+                "${workspaceFolder}/scripts/start-local-altair-windows.cmd"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -29,9 +29,7 @@
                 "panel": "dedicated",
                 "clear": true
             },
-            "problemMatcher": [
-                "$msCompile"
-            ]
+            "problemMatcher": []
         },
         {
             "label": "Start Local Altair",

@@ -1,16 +1,21 @@
 @echo off
 setlocal
 
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
+pushd "%REPO_ROOT%"
+if errorlevel 1 exit /b %errorlevel%
+
 if /I "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
     set "PLATFORM=ARM64"
     set "VSARCH=arm64"
-    set "BUILDDIR=local_altair\build-msvc-arm64"
-    set "EXEPATH=local_altair\build-msvc-arm64\Release\altair-local.exe"
+    set "LOCAL_BUILDDIR=local_altair\build-msvc-arm64"
+    set "MCP_BUILDDIR=mcp_app_build_server\build-msvc-arm64"
 ) else (
     set "PLATFORM=x64"
     set "VSARCH=amd64"
-    set "BUILDDIR=local_altair\build-msvc"
-    set "EXEPATH=local_altair\build-msvc\Release\altair-local.exe"
+    set "LOCAL_BUILDDIR=local_altair\build-msvc"
+    set "MCP_BUILDDIR=mcp_app_build_server\build-msvc"
 )
 
 set "VSDEVCMD="
@@ -38,11 +43,18 @@ if not defined VSDEVCMD (
 call "%VSDEVCMD%" -arch=%VSARCH%
 if errorlevel 1 exit /b %errorlevel%
 
-cmake -S local_altair -B "%BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM%
+cmake -S local_altair -B "%LOCAL_BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM%
 if errorlevel 1 exit /b %errorlevel%
 
-cmake --build "%BUILDDIR%" --config Release
+cmake --build "%LOCAL_BUILDDIR%" --config Release
 if errorlevel 1 exit /b %errorlevel%
 
-"%EXEPATH%"
-exit /b %errorlevel%
+cmake -S mcp_app_build_server -B "%MCP_BUILDDIR%" -G "Visual Studio 17 2022" -A %PLATFORM%
+if errorlevel 1 exit /b %errorlevel%
+
+cmake --build "%MCP_BUILDDIR%" --config Release
+if errorlevel 1 exit /b %errorlevel%
+
+echo Windows host tools built successfully.
+popd
+exit /b 0

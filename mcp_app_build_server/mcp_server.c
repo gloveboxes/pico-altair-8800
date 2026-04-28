@@ -12,9 +12,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#define strdup _strdup
+#else
 #include <strings.h>
-#include <time.h>
 #include <sys/time.h>
+#endif
+#include <time.h>
 
 #define INPUT_CAP 16384
 #define OUTPUT_CAP 1048576
@@ -349,45 +356,76 @@ static bool ensure_booted(void)
     return emulator_boot(g_drive_a, g_drive_b, g_drive_c);
 }
 
-static void json_write_escaped(FILE *out, const char *text)
+static char *json_escape_dup(const char *text)
 {
     const unsigned char *p = (const unsigned char *)text;
+    size_t cap = (strlen(text) * 6) + 3;
+    char *out = (char *)malloc(cap);
+    char *dst;
 
-    fputc('"', out);
+    if (!out) {
+        return NULL;
+    }
+
+    dst = out;
+
+    *dst++ = '"';
     while (*p) {
         switch (*p) {
         case '"':
-            fputs("\\\"", out);
+            memcpy(dst, "\\\"", 2);
+            dst += 2;
             break;
         case '\\':
-            fputs("\\\\", out);
+            memcpy(dst, "\\\\", 2);
+            dst += 2;
             break;
         case '\b':
-            fputs("\\b", out);
+            memcpy(dst, "\\b", 2);
+            dst += 2;
             break;
         case '\f':
-            fputs("\\f", out);
+            memcpy(dst, "\\f", 2);
+            dst += 2;
             break;
         case '\n':
-            fputs("\\n", out);
+            memcpy(dst, "\\n", 2);
+            dst += 2;
             break;
         case '\r':
-            fputs("\\r", out);
+            memcpy(dst, "\\r", 2);
+            dst += 2;
             break;
         case '\t':
-            fputs("\\t", out);
+            memcpy(dst, "\\t", 2);
+            dst += 2;
             break;
         default:
             if (*p < 0x20) {
-                fprintf(out, "\\u%04x", *p);
+                snprintf(dst, 7, "\\u%04x", *p);
+                dst += 6;
             } else {
-                fputc(*p, out);
+                *dst++ = (char)*p;
             }
             break;
         }
         p++;
     }
-    fputc('"', out);
+    *dst++ = '"';
+    *dst = '\0';
+    return out;
+}
+
+static void json_write_escaped(FILE *out, const char *text)
+{
+    char *escaped = json_escape_dup(text);
+
+    if (!escaped) {
+        return;
+    }
+
+    fputs(escaped, out);
+    free(escaped);
 }
 
 static char *json_get_string(const char *json, const char *key)
@@ -588,27 +626,23 @@ static void send_error(const char *id, int code, const char *message)
 
 static void send_tool_text_result(const char *id, const char *text)
 {
-    char *escaped = NULL;
-    FILE *mem;
-    size_t size;
+    char *escaped;
     char *body;
 
-    mem = open_memstream(&escaped, &size);
-    if (!mem) {
+    escaped = json_escape_dup(text);
+    if (!escaped) {
         send_error(id, -32603, "failed to allocate response");
         return;
     }
-    json_write_escaped(mem, text);
-    fclose(mem);
 
-    body = (char *)malloc(size + 256);
+    body = (char *)malloc(strlen(escaped) + 256);
     if (!body) {
         send_error(id, -32603, "failed to allocate response");
         free(escaped);
         return;
     }
 
-    snprintf(body, size + 256,
+    snprintf(body, strlen(escaped) + 256,
              "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"content\":[{\"type\":\"text\",\"text\":%s}],\"isError\":false}}",
              id, escaped);
     send_body(body);
@@ -752,10 +786,14 @@ static bool output_has_error(const char *text)
 
 static long long now_ms(void)
 {
+#if defined(_WIN32)
+    return (long long)GetTickCount64();
+#else
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
     return ((long long)tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+#endif
 }
 
 static void handle_build_app(const char *id, const char *json)
