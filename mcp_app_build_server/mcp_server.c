@@ -416,18 +416,6 @@ static char *json_escape_dup(const char *text)
     return out;
 }
 
-static void json_write_escaped(FILE *out, const char *text)
-{
-    char *escaped = json_escape_dup(text);
-
-    if (!escaped) {
-        return;
-    }
-
-    fputs(escaped, out);
-    free(escaped);
-}
-
 static char *json_get_string(const char *json, const char *key)
 {
     char pattern[80];
