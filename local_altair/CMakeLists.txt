@@ -6,6 +6,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 add_executable(altair-local
     main.c
+    host_platform.c
     ../ansi_input.c
     io_ports.c
     ../PortDrivers/host_files_io.c
@@ -33,4 +34,6 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
         -Wextra
         -Wno-missing-field-initializers
     )
+elseif(MSVC)
+    target_compile_options(altair-local PRIVATE /W4)
 endif()

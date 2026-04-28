@@ -83,10 +83,44 @@ cmake -S mcp_app_build_server -B mcp_app_build_server/build
 cmake --build mcp_app_build_server/build
 ```
 
+Windows native MSVC build from a "Developer PowerShell for VS" prompt:
+
+```powershell
+cmake -S mcp_app_build_server -B mcp_app_build_server/build-msvc -G "Visual Studio 17 2022" -A x64
+cmake --build mcp_app_build_server/build-msvc --config Release
+```
+
+For Windows on Arm64, use:
+
+```powershell
+cmake -S mcp_app_build_server -B mcp_app_build_server/build-msvc-arm64 -G "Visual Studio 17 2022" -A ARM64
+cmake --build mcp_app_build_server/build-msvc-arm64 --config Release
+```
+
+To build both Windows host tools together, use the shared helper from the repo root or the `scripts` folder:
+
+```powershell
+.\scripts\build-host-tools-windows.cmd
+```
+
+That script builds both `local_altair` and `mcp_app_build_server` in the matching MSVC build directories.
+
 Run from the `mcp_app_build_server` folder so the default disk paths resolve:
 
 ```sh
 ./build/altair-cpm-mcp
+```
+
+On Windows, run the generated executable from the matching build configuration, for example:
+
+```powershell
+.\mcp_app_build_server\build-msvc\Release\altair-cpm-mcp.exe
+```
+
+On Windows on Arm64, run:
+
+```powershell
+.\mcp_app_build_server\build-msvc-arm64\Release\altair-cpm-mcp.exe
 ```
 
 The executable also accepts explicit disk paths:

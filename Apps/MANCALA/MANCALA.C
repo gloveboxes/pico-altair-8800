@@ -5,6 +5,7 @@
  * Player vs computer, Kalah-style rules.
  *
  * Keys:
+ *   1/2/3 at startup   Easy / Medium / Hard
  *   Left/Right arrows  Select pit
  *   Space or Return    Sow selected pit
  *   Q, ESC, Ctrl-C     Quit
@@ -47,6 +48,7 @@ int sel;
 int quit;
 int over;
 int escst;
+int lvl;
 
 /* pstr(s) - Print a NUL-terminated string. */
 int pstr(s)
@@ -147,6 +149,13 @@ int stat()
     num2(pit[HST]);
     pstr("  CPU:");
     num2(pit[CST]);
+    pstr("  ");
+    if (lvl == 0)
+        pstr("EASY");
+    else if (lvl == 1)
+        pstr("MED");
+    else
+        pstr("HARD");
     x_ereol();
     return 0;
 }
@@ -428,6 +437,54 @@ int init()
     quit = 0;
     over = 0;
     escst = 0;
+    lvl = 2;
+    return 0;
+}
+
+/* picklv() - Select computer difficulty. */
+int picklv()
+{
+    int c;
+
+    x_clrsc();
+    x_hidcr();
+    brdr();
+    x_setc(37);
+    x_curmv(9, 22);
+    pstr("MANCALA - SELECT COMPUTER LEVEL");
+    x_curmv(12, 28);
+    pstr("1  EASY    RANDOM PLAY");
+    x_curmv(14, 28);
+    pstr("2  MEDIUM  MINIMAX DEPTH 2");
+    x_curmv(16, 28);
+    pstr("3  HARD    MINIMAX DEPTH 4");
+    x_curmv(20, 24);
+    pstr("PRESS 1, 2, OR 3   (RETURN = HARD)");
+    x_rstc();
+    while (1)
+    {
+        c = x_keyrd();
+        if (c == '1')
+        {
+            lvl = 0;
+            return 0;
+        }
+        if (c == '2')
+        {
+            lvl = 1;
+            return 0;
+        }
+        if (c == '3' || c == KEYR)
+        {
+            lvl = 2;
+            return 0;
+        }
+        if (c == KEYQ || c == KEYq || c == XK_ESC || x_iscc(c))
+        {
+            quit = 1;
+            return 0;
+        }
+    }
     return 0;
 }
 
@@ -650,6 +707,259 @@ int p;
     return 0;
 }
 
+/* bcopy() - Copy a simulated board. */
+int bcopy(dst, src)
+int dst[];
+int src[];
+{
+    int i;
+
+    for (i = 0; i < TOT; i++)
+        dst[i] = src[i];
+    return 0;
+}
+
+/* bsumh() - Count simulated human beans. */
+int bsumh(b)
+int b[];
+{
+    int i;
+    int s;
+
+    s = 0;
+    for (i = 0; i < HST; i++)
+        s += b[i];
+    return s;
+}
+
+/* bsumc() - Count simulated computer beans. */
+int bsumc(b)
+int b[];
+{
+    int i;
+    int s;
+
+    s = 0;
+    for (i = 7; i < CST; i++)
+        s += b[i];
+    return s;
+}
+
+/* blegal() - Test simulated legal move. */
+int blegal(b, p)
+int b[];
+int p;
+{
+    int i;
+
+    if (p == 0)
+    {
+        for (i = 0; i < HST; i++)
+            if (b[i] > 0)
+                return 1;
+    }
+    else
+    {
+        for (i = 7; i < CST; i++)
+            if (b[i] > 0)
+                return 1;
+    }
+    return 0;
+}
+
+/* bfin() - Sweep simulated end-game beans. */
+int bfin(b)
+int b[];
+{
+    int i;
+
+    for (i = 0; i < HST; i++)
+    {
+        b[HST] += b[i];
+        b[i] = 0;
+    }
+    for (i = 7; i < CST; i++)
+    {
+        b[CST] += b[i];
+        b[i] = 0;
+    }
+    return 0;
+}
+
+/* bmov() - Sow on a simulated board. */
+int bmov(b, i, p)
+int b[];
+int i;
+int p;
+{
+    int cnt;
+    int pos;
+    int op;
+    int st;
+
+    if (!owned(i, p) || b[i] == 0)
+        return 0;
+    cnt = b[i];
+    b[i] = 0;
+    pos = i;
+    while (cnt > 0)
+    {
+        pos++;
+        if (pos >= TOT)
+            pos = 0;
+        if (!skip(pos, p))
+        {
+            b[pos]++;
+            cnt--;
+        }
+    }
+
+    st = store(p);
+    if (owned(pos, p) && b[pos] == 1)
+    {
+        op = opp(pos);
+        if (b[op] > 0)
+        {
+            b[st] += b[op] + 1;
+            b[op] = 0;
+            b[pos] = 0;
+        }
+    }
+    if (bsumh(b) == 0 || bsumc(b) == 0)
+    {
+        bfin(b);
+        return 0;
+    }
+    if (pos == st)
+        return 2;
+    return 1;
+}
+
+/* bmob() - Count legal simulated moves. */
+int bmob(b, p)
+int b[];
+int p;
+{
+    int i;
+    int n;
+
+    n = 0;
+    if (p == 0)
+    {
+        for (i = 0; i < HST; i++)
+            if (b[i] > 0)
+                n++;
+    }
+    else
+    {
+        for (i = 7; i < CST; i++)
+            if (b[i] > 0)
+                n++;
+    }
+    return n;
+}
+
+/* bscore() - Evaluate a simulated board for the computer. */
+int bscore(b)
+int b[];
+{
+    int cdif;
+    int pdif;
+    int mdif;
+
+    if (bsumh(b) == 0 || bsumc(b) == 0)
+        return ((b[CST] + bsumc(b)) - (b[HST] + bsumh(b))) * 1000;
+    cdif = b[CST] - b[HST];
+    pdif = bsumc(b) - bsumh(b);
+    mdif = bmob(b, 1) - bmob(b, 0);
+    return (cdif * 100) + (pdif * 4) + (mdif * 3);
+}
+
+/* mmx() - Minimax score for simulated play. */
+int mmx(b, p, dep)
+int b[];
+int p;
+int dep;
+{
+    int i;
+    int res;
+    int val;
+    int best;
+    int nb[TOT];
+
+    if (dep <= 0 || bsumh(b) == 0 || bsumc(b) == 0)
+        return bscore(b);
+    if (!blegal(b, p))
+        return bscore(b);
+
+    if (p == 1)
+        best = -30000;
+    else
+        best = 30000;
+
+    if (p == 0)
+    {
+        for (i = 0; i < HST; i++)
+        {
+            if (b[i] == 0)
+                continue;
+            bcopy(nb, b);
+            res = bmov(nb, i, p);
+            if (res == 2)
+                val = mmx(nb, p, dep - 1);
+            else
+                val = mmx(nb, 1, dep - 1);
+            if (val < best)
+                best = val;
+        }
+    }
+    else
+    {
+        for (i = 7; i < CST; i++)
+        {
+            if (b[i] == 0)
+                continue;
+            bcopy(nb, b);
+            res = bmov(nb, i, p);
+            if (res == 2)
+                val = mmx(nb, p, dep - 1);
+            else
+                val = mmx(nb, 0, dep - 1);
+            if (val > best)
+                best = val;
+        }
+    }
+    return best;
+}
+
+/* rpick() - Pick a random legal computer pit. */
+int rpick()
+{
+    int i;
+    int n;
+    int pick;
+    unsigned r;
+
+    n = 0;
+    for (i = 7; i < CST; i++)
+        if (pit[i] > 0)
+            n++;
+    if (n == 0)
+        return 7;
+    r = x_rand();
+    pick = r % n;
+    for (i = 7; i < CST; i++)
+    {
+        if (pit[i] > 0)
+        {
+            if (pick == 0)
+                return i;
+            pick--;
+        }
+    }
+    return 7;
+}
+
 /* nxsel(d) - Move selected human pit. */
 int nxsel(d)
 int d;
@@ -769,12 +1079,31 @@ int cpick()
     int best;
     int bval;
     int val;
+    int dep;
+    int res;
+    int nb[TOT];
+
+    if (lvl == 0)
+        return rpick();
+
+    if (lvl == 1)
+        dep = 2;
+    else
+        dep = 4;
 
     best = 7;
-    bval = -1;
+    bval = -30000;
     for (i = 7; i < CST; i++)
     {
-        val = eval(i);
+        if (pit[i] == 0)
+            continue;
+        bcopy(nb, pit);
+        res = bmov(nb, i, 1);
+        if (res == 2)
+            val = mmx(nb, 1, dep - 1);
+        else
+            val = mmx(nb, 0, dep - 1);
+        val += eval(i);
         if (val > bval)
         {
             bval = val;
@@ -849,6 +1178,14 @@ int final()
 int main()
 {
     init();
+    picklv();
+    if (quit)
+    {
+        x_shwcr();
+        x_rstc();
+        pstr("\r\n");
+        return 0;
+    }
     drall();
 
     while (!quit && !over)
