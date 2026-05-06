@@ -102,7 +102,7 @@ target_include_directories(lwipopts_provider INTERFACE ${ALTAIR_PICO_DIR})
 
 set(ALTAIR_SOURCES
     ${ALTAIR_PICO_DIR}/main.c
-    ${ALTAIR_REPO_ROOT}/ansi_input.c
+    ${ALTAIR_PICO_DIR}/ansi_input.c
     ${ALTAIR_PICO_DIR}/wifi.c
     ${ALTAIR_PICO_DIR}/cpu_state.c
     ${ALTAIR_PICO_DIR}/FrontPanels/virtual_monitor.c

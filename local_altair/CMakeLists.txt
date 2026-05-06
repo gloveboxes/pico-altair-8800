@@ -10,7 +10,7 @@ find_package(Threads REQUIRED)
 add_executable(altair-local
     main.c
     host_platform.c
-    ../ansi_input.c
+    ../src/pico/ansi_input.c
     io_ports.c
     ../src/pico/PortDrivers/host_chat_io.c
     ../src/pico/PortDrivers/host_files_io.c
