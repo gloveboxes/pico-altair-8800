@@ -8,7 +8,7 @@
 #include "dxterm.h"
 #include "chatjson.h"
 
-#define CHAT_VERSION "1.5"
+#define CHT_VER "1.5"
 
 /* Message types */
 #define MSG_SYS 0
@@ -19,14 +19,14 @@
 #define MAX_MSG 10
 #define SYS_LEN 1024
 #define REQ_LEN 8192
-#define CFG_LINE 80
+#define CLINE 80
 #define CFG_VAL 16
-#define CFG_MLEN 32
+#define CMLEN 32
 
-/* OpenAI Status codes (like webget status codes) */
-#define OPENAI_EOF 0
-#define OPENAI_WAITING 1
-#define OPENAI_DATA_READY 2
+/* OpenAI status codes */
+#define OEOF 0
+#define OWAIT 1
+#define ODATA 2
 
 /* Message structure */
 struct msg_s
@@ -36,13 +36,13 @@ struct msg_s
 };
 
 /* Global chat context - simplified for BDS C */
-char g_sysmsg[SYS_LEN];
+char g_sys[SYS_LEN];
 char g_mtok[CFG_VAL];
 char g_tempv[CFG_VAL];
-char g_model[CFG_MLEN];
+char g_model[CMLEN];
 int g_types[MAX_MSG]; /* Renamed to avoid 7-char limit clash */
-int g_msgcnt;
-int g_cursor; /* Fixed spelling and length */
+int g_mcnt;
+int g_cur;
 
 /* Shared request/response buffers */
 char g_req[REQ_LEN];
@@ -65,20 +65,21 @@ int ch_menu();
 int ch_chat();
 int ch_addm();
 int ch_show();
-int ch_clear();
+int ch_clr();
 int ch_api();
 int ch_recv();
 int ch_copy();
-int ch_print();
+int ch_prn();
+int ch_line();
 int ch_gus();
 int ch_fus();
 int ch_gas();
 int ch_fas();
-int ch_loadcfg();
-int ch_cfgln();
-int ch_settok();
-int ch_settmp();
-int ch_setmdl();
+int ch_lcfg();
+int ch_cfg();
+int ch_stok();
+int ch_stmp();
+int ch_smdl();
 
 /* String functions */
 int strlen();
@@ -88,6 +89,7 @@ int strcmp();
 
 /* I/O port functions */
 int outp();
+int inp();
 
 main()
 {
@@ -124,7 +126,7 @@ main()
             x_conin();
             break;
         case 3:
-            ch_clear();
+            ch_clr();
             printf("\nPress any key to continue...");
             x_conin();
             break;
@@ -150,14 +152,14 @@ int ch_init()
     int i;
 
     /* Clear system message */
-    g_sysmsg[0] = 0;
+    g_sys[0] = 0;
     strcpy(g_mtok, "512");
     strcpy(g_tempv, "0.2");
     strcpy(g_model, "gpt-4o-mini");
 
     /* Clear message arrays */
-    g_msgcnt = 0;
-    g_cursor = 0;
+    g_mcnt = 0;
+    g_cur = 0;
 
     for (i = 0; i < MAX_MSG; i++)
     {
@@ -179,9 +181,9 @@ int ch_init()
 /* Load system message from chat.sys */
 int ch_load()
 {
-    FILE *fp;
     int ch;
     int idx;
+    FILE *fp;
 
     fp = fopen("chat.sys", "r");
     if (fp == 0)
@@ -199,25 +201,25 @@ int ch_load()
         }
 
         /* Ensure stored system text stays in 7-bit ASCII */
-        g_sysmsg[idx++] = ch & 0x7F;
+        g_sys[idx++] = ch & 0x7F;
     }
-    g_sysmsg[idx] = 0;
+    g_sys[idx] = 0;
 
     fclose(fp);
 
     /* Load optional config (uses defaults if missing) */
-    ch_loadcfg();
+    ch_lcfg();
 
     return 0;
 }
 
 /* Parse chat.cfg for optional parameters */
-int ch_loadcfg()
+int ch_lcfg()
 {
-    FILE *fp;
     int ch;
     int idx;
-    char line[CFG_LINE];
+    char line[CLINE];
+    FILE *fp;
 
     fp = fopen("chat.cfg", "r");
     if (fp == 0)
@@ -242,12 +244,12 @@ int ch_loadcfg()
         {
             line[idx] = 0;
             if (idx > 0)
-                ch_cfgln(line);
+                ch_cfg(line);
             idx = 0;
             continue;
         }
 
-        if (idx < CFG_LINE - 1)
+        if (idx < CLINE - 1)
         {
             line[idx++] = ch & 0x7F;
         }
@@ -256,7 +258,7 @@ int ch_loadcfg()
     if (idx > 0)
     {
         line[idx] = 0;
-        ch_cfgln(line);
+        ch_cfg(line);
     }
 
     fclose(fp);
@@ -265,11 +267,11 @@ int ch_loadcfg()
 }
 
 /* Handle a single config line */
-int ch_cfgln(line)
+int ch_cfg(line)
 char *line;
 {
     char key[CFG_VAL];
-    char val[CFG_LINE];
+    char val[CLINE];
     char *ptr;
     int i;
 
@@ -306,7 +308,7 @@ char *line;
         /* For model, allow full line except comment */
         while (*ptr && *ptr != '#' && *ptr != '\n' && *ptr != '\r')
         {
-            if (i < CFG_LINE - 1)
+            if (i < CLINE - 1)
                 val[i++] = *ptr;
             ptr++;
         }
@@ -317,7 +319,7 @@ char *line;
         {
             if (*ptr == ' ' || *ptr == '\t')
                 break;
-            if (i < CFG_LINE - 1)
+            if (i < CLINE - 1)
                 val[i++] = *ptr;
             ptr++;
         }
@@ -328,17 +330,17 @@ char *line;
         return 0;
 
     if (strcmp(key, "max_tokens") == 0)
-        ch_settok(val);
+        ch_stok(val);
     else if (strcmp(key, "temperature") == 0)
-        ch_settmp(val);
+        ch_stmp(val);
     else if (strcmp(key, "model") == 0)
-        ch_setmdl(val);
+        ch_smdl(val);
 
     return 0;
 }
 
 /* Validate and store max_tokens */
-int ch_settok(val)
+int ch_stok(val)
 char *val;
 {
     int i;
@@ -367,7 +369,7 @@ char *val;
 }
 
 /* Validate and store temperature */
-int ch_settmp(val)
+int ch_stmp(val)
 char *val;
 {
     int i;
@@ -406,29 +408,29 @@ char *val;
     return 0;
 }
 
-char *ch_gettok()
+char *ch_gtok()
 {
     return g_mtok;
 }
 
-char *ch_gettmp()
+char *ch_gtmp()
 {
     return g_tempv;
 }
 
-char *ch_getmdl()
+char *ch_gmdl()
 {
     return g_model;
 }
 
 /* Validate and store model name */
-int ch_setmdl(val)
+int ch_smdl(val)
 char *val;
 {
     int i;
     int j;
     int ch;
-    char tmp[CFG_MLEN];
+    char tmp[CMLEN];
 
     j = 0;
     for (i = 0; val[i]; i++)
@@ -439,7 +441,7 @@ char *val;
             (ch >= '0' && ch <= '9') ||
             ch == '-' || ch == '_' || ch == '.' || ch == '/')
         {
-            if (j < CFG_MLEN - 1)
+            if (j < CMLEN - 1)
                 tmp[j++] = ch;
         }
         else
@@ -463,7 +465,7 @@ int ch_menu()
     x_clrsc();
     x_curmv(1, 1);
 
-    printf("Altair 8800 Chat App v%s\n", CHAT_VERSION);
+    printf("Altair 8800 Chat App v%s\n", CHT_VER);
     printf("=========================\n\n");
     printf("1. Start Chat\n");
     printf("2. Show Messages\n");
@@ -485,7 +487,7 @@ int ch_chat()
     x_clrsc();
     printf("=== Chat Session ===\n");
     printf("Type 'quit' to exit, 'clear' to clear screen\n");
-    printf("System message:\n%s\n\n", g_sysmsg);
+    printf("System message:\n%s\n\n", g_sys);
 
 
     while (1)
@@ -495,8 +497,7 @@ int ch_chat()
         printf("You: ");
         x_rstc();
 
-        /* Get user input - simple gets() */
-        gets(input);
+        ch_line(input, USR_LEN);
 
         /* Check for commands */
         if (strcmp(input, "quit") == 0)
@@ -537,17 +538,11 @@ int type;
 char *text;
 {
     int idx;
-    char *type_name;
     int limit;
     int slot;
     int i;
 
-    /* Debug: show what we're adding */
-    type_name = (type == MSG_USR) ? "USER" : (type == MSG_AST) ? "ASSISTANT"
-                                                               : "UNKNOWN";
-    /* printf("DEBUG ch_addm: Adding %s (%d): '%.50s%s'\n", type_name, type, text, strlen(text) > 50 ? "..." : ""); */
-
-    if (g_msgcnt >= MAX_MSG)
+    if (g_mcnt >= MAX_MSG)
     {
         /* Shift messages down */
         /* printf("DEBUG: Shifting messages (full)\n"); */
@@ -568,10 +563,10 @@ char *text;
         g_mptr[MAX_MSG - 1] = 0;
         g_umap[MAX_MSG - 1] = -1;
         g_amap[MAX_MSG - 1] = -1;
-        g_msgcnt = MAX_MSG - 1;
+        g_mcnt = MAX_MSG - 1;
     }
 
-    idx = g_msgcnt;
+    idx = g_mcnt;
     g_types[idx] = type;
     g_mptr[idx] = 0;
     g_umap[idx] = -1;
@@ -603,7 +598,7 @@ char *text;
         g_mptr[idx] = g_umsg[slot];
         g_umap[idx] = slot;
     }
-    g_msgcnt++;
+    g_mcnt++;
 
     return 0;
 }
@@ -618,11 +613,11 @@ int ch_show()
 
     /* Show system message */
     x_setc(XC_YEL);
-    printf("System: %s\n\n", g_sysmsg);
+    printf("System: %s\n\n", g_sys);
     x_rstc();
 
     /* Show messages */
-    for (i = 0; i < g_msgcnt; i++)
+    for (i = 0; i < g_mcnt; i++)
     {
         switch (g_types[i])
         {
@@ -640,7 +635,7 @@ int ch_show()
         }
 
         if (g_mptr[i])
-            ch_print(g_mptr[i]);
+            ch_prn(g_mptr[i]);
         printf("\n");
         x_rstc();
     }
@@ -650,11 +645,11 @@ int ch_show()
 }
 
 /* Clear message history */
-int ch_clear()
+int ch_clr()
 {
     int i;
 
-    for (i = 0; i < g_msgcnt; i++)
+    for (i = 0; i < g_mcnt; i++)
     {
         if (g_types[i] == MSG_USR)
             ch_fus(g_umap[i]);
@@ -665,7 +660,7 @@ int ch_clear()
         g_umap[i] = -1;
         g_amap[i] = -1;
     }
-    g_msgcnt = 0;
+    g_mcnt = 0;
     printf("\nMessage history cleared\n");
     return 0;
 }
@@ -679,12 +674,12 @@ int ch_api()
 
     /* Debug: show system message and queued messages */
     /*
-    printf("System message: %s\n", g_sysmsg);
-    printf("System message length: %d\n", strlen(g_sysmsg));
+    printf("System message: %s\n", g_sys);
+    printf("System message length: %d\n", strlen(g_sys));
         */
-    /* printf("DEBUG: g_msgcnt = %d\n", g_msgcnt); */
+    /* printf("DEBUG: g_mcnt = %d\n", g_mcnt); */
     /*
-    for (i = 0; i < g_msgcnt; i++) {
+    for (i = 0; i < g_mcnt; i++) {
         dbg = g_mptr[i];
         if (dbg == 0)
             dbg = "";
@@ -698,7 +693,7 @@ int ch_api()
     */
 
     /* Generate JSON request payload */
-    reqlen = j_genreq(g_sysmsg, g_types, g_mptr, g_msgcnt, g_req, REQ_LEN);
+    reqlen = j_genr(g_sys, g_types, g_mptr, g_mcnt, g_req, REQ_LEN);
     if (reqlen < 0)
     {
         printf("Error: JSON too large for buffer\n");
@@ -857,6 +852,45 @@ int max;
     return cnt;
 }
 
+/* Read one bounded console line. */
+int ch_line(buf, max)
+char *buf;
+int max;
+{
+    int pos;
+    int ch;
+
+    pos = 0;
+    while (1)
+    {
+        ch = x_conin() & 0x7F;
+        if (ch == '\r' || ch == '\n')
+        {
+            x_cout('\r');
+            x_cout('\n');
+            break;
+        }
+        if (ch == 8 || ch == 127)
+        {
+            if (pos > 0)
+            {
+                pos--;
+                x_cout(8);
+                x_cout(' ');
+                x_cout(8);
+            }
+            continue;
+        }
+        if (ch >= ' ' && ch < 127 && pos < max - 1)
+        {
+            buf[pos++] = ch;
+            x_cout(ch);
+        }
+    }
+    buf[pos] = 0;
+    return pos;
+}
+
 /* Allocate user slot */
 int ch_gus()
 {
@@ -908,7 +942,7 @@ int slot;
 }
 
 /* Print string without truncation */
-int ch_print(text)
+int ch_prn(text)
 char *text;
 {
     char ch;

@@ -1,5 +1,6 @@
 #include "Altair8800/intel8080.h"
 #include "Altair8800/memory.h"
+#include "PortDrivers/chat_io.h"
 #include "PortDrivers/host_files_io.h"
 #include "ansi_input.h"
 #include "host_platform.h"
@@ -153,6 +154,7 @@ int main(int argc, char **argv)
     }
 
     host_files_init(apps_root_path);
+    chat_io_init();
     controller = host_disk_controller();
 
     memset(memory, 0x00, 64 * 1024);

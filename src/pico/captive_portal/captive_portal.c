@@ -452,6 +452,11 @@ static struct tcp_pcb* http_pcb = NULL;
 static bool portal_running = false;
 static bool reboot_pending = false;
 static absolute_time_t reboot_deadline;
+static bool config_save_pending = false;
+static absolute_time_t config_save_deadline;
+static char pending_ssid[CONFIG_SSID_MAX_LEN + 1];
+static char pending_password[CONFIG_PASSWORD_MAX_LEN + 1];
+static char pending_rfs_ip[CONFIG_RFS_IP_MAX_LEN + 1];
 
 #define HTTP_RECV_BUF_SIZE 1024
 
@@ -585,14 +590,14 @@ static bool handle_configure_post(const char* body)
         return false;
     }
 
-    // Save configuration
-    bool saved = config_save(ssid, password, rfs_ip[0] ? rfs_ip : NULL);
-    if (saved)
-    {
-        printf("[Captive] Configuration saved successfully\n");
-    }
+    strncpy(pending_ssid, ssid, sizeof(pending_ssid) - 1);
+    pending_ssid[sizeof(pending_ssid) - 1] = '\0';
+    strncpy(pending_password, password, sizeof(pending_password) - 1);
+    pending_password[sizeof(pending_password) - 1] = '\0';
+    strncpy(pending_rfs_ip, rfs_ip, sizeof(pending_rfs_ip) - 1);
+    pending_rfs_ip[sizeof(pending_rfs_ip) - 1] = '\0';
 
-    return saved;
+    return true;
 }
 
 static err_t http_close_conn(http_conn_t* conn)
@@ -712,10 +717,10 @@ static void http_process_request(http_conn_t* conn)
                 snprintf(header, sizeof(header), "%s%zu\r\n\r\n", HTTP_200_JSON, json_len);
                 http_send_response(conn, header, (const uint8_t*)json_body, json_len);
 
-                // Schedule reboot after a short delay (let response flush)
-                printf("[Captive] Configuration saved, rebooting in 2 seconds...\n");
-                reboot_pending = true;
-                reboot_deadline = make_timeout_time_ms(2000);
+                // Schedule flash save after a short delay so the response can flush.
+                printf("[Captive] Configuration accepted, saving in 2 seconds...\n");
+                config_save_pending = true;
+                config_save_deadline = make_timeout_time_ms(2000);
             }
             else
             {
@@ -954,6 +959,21 @@ bool captive_portal_is_running(void)
 
 void captive_portal_poll(void)
 {
+    if (config_save_pending && time_reached(config_save_deadline))
+    {
+        config_save_pending = false;
+
+        printf("[Captive] Saving configuration...\n");
+        captive_portal_stop();
+
+        bool saved = config_save(pending_ssid, pending_password,
+                                 pending_rfs_ip[0] ? pending_rfs_ip : NULL);
+        printf("[Captive] Configuration %s, rebooting in 1 second...\n",
+               saved ? "saved" : "save failed");
+        reboot_pending = true;
+        reboot_deadline = make_timeout_time_ms(1000);
+    }
+
     if (reboot_pending && time_reached(reboot_deadline))
     {
         reboot_pending = false;

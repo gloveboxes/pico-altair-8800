@@ -6,6 +6,7 @@
 #include "hardware/timer.h"
 #include "pico/stdlib.h"
 
+#include "PortDrivers/chat_io.h"
 #include "PortDrivers/files_io.h"
 #include "drivers/bluetooth/bt_keyboard.h"
 #include "websocket_console.h"
@@ -283,6 +284,7 @@ void websocket_console_start(void)
 
     websocket_queue_init();
     files_io_init(); // Initialize file transfer client queues
+    chat_io_init();
 
 #ifdef REMOTE_FS_SUPPORT
     // Initialize remote FS client queues
@@ -379,6 +381,8 @@ static void websocket_console_core1_entry(void)
         }
         multicore_fifo_push_blocking(ip_raw);
 
+        chat_io_set_network_available(true);
+
         // Initialize and start WebSocket server
         if (!websocket_console_init_server())
         {
@@ -416,6 +420,7 @@ static void websocket_console_core1_entry(void)
             rfs_client_poll();
 #endif
             ft_client_poll(); // Poll file transfer client
+            chat_client_poll();
 #ifdef BLUETOOTH_KEYBOARD_SUPPORT
             bt_keyboard_poll();
 #endif
@@ -449,39 +454,9 @@ static void websocket_console_core1_entry(void)
             tight_loop_contents();
         }
     }
-    else if (result == WIFI_INIT_NO_CREDS || result == WIFI_INIT_CONNECT_FAIL)
+    else if (result == WIFI_INIT_NO_CREDS)
     {
-#if defined(VT100_DISPLAY) && defined(BLUETOOTH_KEYBOARD_SUPPORT)
-        // VT100 + BT keyboard mode: WiFi failed but that's OK - continue
-        // without it. Power down WiFi radio to save power.
-        printf("[Core1] WiFi unavailable, continuing in BT-only mode\n");
-        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
-        multicore_fifo_push_blocking(0);
-        vt100_set_ip("BT only");
-
-        // BT-only + VT100 display poll loop
-        while (true)
-        {
-            bt_keyboard_poll();
-            {
-                uint8_t vt_ch;
-                while (vt100_try_dequeue_output(&vt_ch)) {
-                    vt100_putchar(vt_ch);
-                }
-
-                if (pending_vt100_update) {
-                    pending_vt100_update = false;
-                    uint16_t sw = cpu.cpuStatus;
-                    if (cpu.registers.flags & FLAGS_IF)
-                        sw |= (1 << 9);
-                    vt100_update_status(cpu.address_bus, cpu.data_bus, sw);
-                    vt100_service();
-                }
-            }
-            tight_loop_contents();
-        }
-#else
-        // Start captive portal in AP mode
+        // Start captive portal in AP mode so Wi-Fi credentials can be configured.
         printf("[Core1] Starting captive portal for WiFi configuration...\n");
 
         if (captive_portal_start())
@@ -505,6 +480,43 @@ static void websocket_console_core1_entry(void)
             multicore_fifo_push_blocking(0);
             return;
         }
+    }
+    else if (result == WIFI_INIT_CONNECT_FAIL)
+    {
+#if defined(VT100_DISPLAY) && defined(BLUETOOTH_KEYBOARD_SUPPORT)
+        // VT100 + BT keyboard mode: WiFi connection failed but that's OK - continue
+        // without it. Power down WiFi radio to save power.
+        printf("[Core1] WiFi unavailable, continuing in BT-only mode\n");
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+        multicore_fifo_push_blocking(0);
+        vt100_set_ip("BT only");
+
+        // BT-only + VT100 display poll loop
+        while (true)
+        {
+            bt_keyboard_poll();
+            chat_client_poll();
+            {
+                uint8_t vt_ch;
+                while (vt100_try_dequeue_output(&vt_ch)) {
+                    vt100_putchar(vt_ch);
+                }
+
+                if (pending_vt100_update) {
+                    pending_vt100_update = false;
+                    uint16_t sw = cpu.cpuStatus;
+                    if (cpu.registers.flags & FLAGS_IF)
+                        sw |= (1 << 9);
+                    vt100_update_status(cpu.address_bus, cpu.data_bus, sw);
+                    vt100_service();
+                }
+            }
+            tight_loop_contents();
+        }
+#else
+        printf("[Core1] WiFi connection failed\n");
+        multicore_fifo_push_blocking(0);
+        return;
 #endif /* VT100_DISPLAY && BLUETOOTH_KEYBOARD_SUPPORT */
     }
     else

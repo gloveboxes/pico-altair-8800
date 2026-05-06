@@ -26,17 +26,17 @@ struct msg_s;
 #define J_BOOL 5
 
 /* JSON parsing functions */
-int j_parse();     /* Parse JSON response and extract content */
-int j_genreq();    /* Generate request JSON - takes separate arrays */
+int j_parse();     /* Parse JSON reply and extract content */
+int j_genr();      /* Generate request JSON - takes separate arrays */
 int j_add();       /* Add string to JSON buffer */
-int j_addesc();    /* Add escaped string to JSON buffer */
+int j_ades();      /* Add escaped string to JSON buffer */
 int j_unesc();     /* Unescape JSON string in place */
-int j_match2();    /* Match string at pointer */
+int j_mat2();      /* Match string at pointer */
 
 /* JSON utility functions */
 int j_skip();      /* Skip whitespace */
 
 /* Config access helpers */
-char *ch_gettok();
-char *ch_gettmp();
-char *ch_getmdl();
+char *ch_gtok();
+char *ch_gtmp();
+char *ch_gmdl();

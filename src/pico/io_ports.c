@@ -1,5 +1,6 @@
 #include "io_ports.h"
 
+#include "PortDrivers/chat_io.h"
 #include "PortDrivers/files_io.h"
 #include "PortDrivers/stats_io.h"
 #include "PortDrivers/time_io.h"
@@ -49,6 +50,11 @@ void io_port_out(uint8_t port, uint8_t data)
         case 61:
             files_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
             break;
+        case CHAT_PORT_TRIGGER:
+        case CHAT_PORT_REQUEST:
+        case CHAT_PORT_RESET_RESPONSE:
+            chat_output(port, data, request_unit.buffer, sizeof(request_unit.buffer));
+            break;
         default:
             break;
     }
@@ -69,6 +75,10 @@ uint8_t io_port_in(uint8_t port)
         case 60:
         case 61:
             return files_input(port);
+        case CHAT_PORT_TRIGGER:
+        case CHAT_PORT_STATUS:
+        case CHAT_PORT_DATA:
+            return chat_input(port);
         case 200:
             if (request_unit.count < request_unit.len && request_unit.count < sizeof(request_unit.buffer))
             {

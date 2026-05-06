@@ -7,16 +7,18 @@
 // Maximum lengths for configuration fields
 #define CONFIG_SSID_MAX_LEN 32
 #define CONFIG_PASSWORD_MAX_LEN 63
-#define CONFIG_RFS_IP_MAX_LEN 15 // "xxx.xxx.xxx.xxx"
+#define CONFIG_RFS_IP_MAX_LEN 15      // "xxx.xxx.xxx.xxx"
+#define CONFIG_OPENAI_KEY_MAX_LEN 192 // OpenAI API key
 
 // Configuration structure stored in flash
 typedef struct
 {
-    uint32_t magic;                                // Magic number for validation (0x43464730 = "CFG0")
-    char ssid[CONFIG_SSID_MAX_LEN + 1];            // WiFi SSID (null-terminated)
-    char password[CONFIG_PASSWORD_MAX_LEN + 1];    // WiFi Password (null-terminated)
-    char rfs_server_ip[CONFIG_RFS_IP_MAX_LEN + 1]; // Remote FS server IP (null-terminated)
-    uint32_t checksum;                             // CRC32 checksum for validation
+    uint32_t magic;                                          // Magic number for validation (0x43464731 = "CFG1")
+    char ssid[CONFIG_SSID_MAX_LEN + 1];                      // WiFi SSID (null-terminated)
+    char password[CONFIG_PASSWORD_MAX_LEN + 1];              // WiFi Password (null-terminated)
+    char rfs_server_ip[CONFIG_RFS_IP_MAX_LEN + 1];           // Remote FS server IP (null-terminated)
+    char openai_api_key[CONFIG_OPENAI_KEY_MAX_LEN + 1];      // OpenAI API key (null-terminated)
+    uint32_t checksum;                                       // CRC32 checksum for validation
 } config_t;
 
 // Initialize the configuration system
@@ -39,6 +41,14 @@ const char* config_get_rfs_ip(void);
 // Save all configuration to flash
 // Returns true if successfully saved
 bool config_save(const char* ssid, const char* password, const char* rfs_ip);
+
+// Load OpenAI API key from flash
+// Returns true if a non-empty key was loaded
+bool config_load_openai_key(char* key, size_t key_len);
+
+// Save OpenAI API key to flash (preserves other fields)
+// Returns true if successfully saved
+bool config_save_openai_key(const char* key);
 
 // Clear configuration from flash
 // Returns true if successfully cleared

@@ -111,10 +111,11 @@ set(ALTAIR_SOURCES
     ${ALTAIR_REPO_ROOT}/Altair8800/intel8080.c
     ${ALTAIR_REPO_ROOT}/Altair8800/memory.c
     ${ALTAIR_PICO_DIR}/io_ports.c
-    ${ALTAIR_REPO_ROOT}/PortDrivers/time_io.c
-    ${ALTAIR_REPO_ROOT}/PortDrivers/utility_io.c
-    ${ALTAIR_REPO_ROOT}/PortDrivers/files_io.c
-    ${ALTAIR_REPO_ROOT}/PortDrivers/stats_io.c
+    ${ALTAIR_PICO_DIR}/PortDrivers/time_io.c
+    ${ALTAIR_PICO_DIR}/PortDrivers/utility_io.c
+    ${ALTAIR_PICO_DIR}/PortDrivers/files_io.c
+    ${ALTAIR_PICO_DIR}/PortDrivers/stats_io.c
+    ${ALTAIR_PICO_DIR}/PortDrivers/chat_io.c
     ${ALTAIR_PICO_DIR}/websocket_console.c
     ${ALTAIR_PICO_DIR}/config.c
     ${ALTAIR_PICO_DIR}/core1_io_mgr.c
@@ -232,7 +233,7 @@ if(PICO_CYW43_SUPPORTED)
         ${ALTAIR_PICO_DIR}/captive_portal/captive_portal.c
         ${PICO_SDK_PATH}/lib/lwip/src/apps/http/http_client.c
     )
-    list(APPEND ALTAIR_LIBS pico_ws_server pico_lwip_mdns)
+    list(APPEND ALTAIR_LIBS pico_ws_server pico_lwip_mdns pico_lwip_mbedtls)
 endif()
 
 
@@ -308,7 +309,7 @@ target_include_directories(altair PRIVATE
     ${ALTAIR_REPO_ROOT}
     ${ALTAIR_PICO_DIR}/Altair8800
     ${ALTAIR_REPO_ROOT}/Altair8800
-    ${ALTAIR_REPO_ROOT}/PortDrivers
+    ${ALTAIR_PICO_DIR}/PortDrivers
     ${ALTAIR_PICO_DIR}/FrontPanels
     ${ALTAIR_PICO_DIR}/drivers/bluetooth
     ${ALTAIR_PICO_DIR}/drivers/waveshare
@@ -317,6 +318,12 @@ target_include_directories(altair PRIVATE
 )
 
 if(PICO_CYW43_SUPPORTED)
+    target_compile_definitions(altair PRIVATE
+        MBEDTLS_ALLOW_PRIVATE_ACCESS=1
+        MBEDTLS_HAVE_TIME=1
+        MBEDTLS_PLATFORM_MS_TIME_ALT=1
+    )
+
     target_include_directories(altair PRIVATE
         ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_arch/include
         ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_driver/include

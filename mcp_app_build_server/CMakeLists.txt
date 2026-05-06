@@ -6,7 +6,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 add_executable(altair-cpm-mcp
     mcp_server.c
-    ../PortDrivers/host_files_io.c
+    ../src/pico/PortDrivers/host_files_io.c
     ../Altair8800/universal_88dcdd.c
     ../Altair8800/intel8080.c
     ../Altair8800/memory.c
@@ -15,7 +15,8 @@ add_executable(altair-cpm-mcp
 target_include_directories(altair-cpm-mcp PRIVATE
     ..
     ../Altair8800
-    ../PortDrivers
+    ../src/pico
+    ../src/pico/PortDrivers
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")

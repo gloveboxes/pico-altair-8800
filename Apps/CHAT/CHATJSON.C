@@ -36,7 +36,7 @@ char *text;
 }
 
 /* Append escaped string to buffer with bounds checking */
-int j_addesc(buf, pos, maxlen, text)
+int j_ades(buf, pos, maxlen, text)
 char *buf;
 int *pos;
 int maxlen;
@@ -71,7 +71,16 @@ char *text;
             }
             buf[p++] = '\\';
             buf[p++] = 'r';
+        } else if (ch == '\t') {
+            if (p >= maxlen - 2) {
+                buf[p] = 0;
+                return -1;
+            }
+            buf[p++] = '\\';
+            buf[p++] = 't';
         } else {
+            if (ch < ' ')
+                ch = ' ';
             if (p >= maxlen - 1) {
                 buf[p] = 0;
                 return -1;
@@ -86,7 +95,7 @@ char *text;
 }
 
 /* Generate OpenAI chat completions request JSON - BDS C compatible */
-int j_genreq(sysmsg, types, texts, msgcnt, outbuf, outsize)
+int j_genr(sysmsg, types, texts, msgcnt, outbuf, outsize)
 char *sysmsg;
 int *types;
 char **texts;  /* Pointer to array of message strings */
@@ -98,7 +107,7 @@ int outsize;
     int j_pos;
     int i;
     int prev_pos;
-    char *msg_text;
+    char *msgtxt;
     char *cfg_model;
     char *cfg_tokens;
     char *cfg_temp;
@@ -108,9 +117,9 @@ int outsize;
     /* Use output buffer directly */
     j_buf = outbuf;
 
-    cfg_model = ch_getmdl();
-    cfg_tokens = ch_gettok();
-    cfg_temp = ch_gettmp();
+    cfg_model = ch_gmdl();
+    cfg_tokens = ch_gtok();
+    cfg_temp = ch_gtmp();
     
     /* Clear buffer first */
     if (outsize > 0)
@@ -127,31 +136,29 @@ int outsize;
         return -1;
     
     /* Manually escape and add system message */
-    /* printf("j_genreq: About to add sysmsg: '%.100s...'\n", sysmsg); */
+    /* printf("j_genr: About to add sysmsg: '%.100s...'\n", sysmsg); */
     
     /* Simple JSON escaping for system message */
-    if (j_addesc(j_buf, &j_pos, outsize, sysmsg) < 0) {
-        /* printf("j_genreq: System message truncated due to buffer limit\n"); */
-        j_buf[j_pos] = 0;
-    }
+    if (j_ades(j_buf, &j_pos, outsize, sysmsg) < 0)
+        return -1;
     if (j_add(j_buf, &j_pos, outsize, "\"}") < 0)
         return -1;
     
     /* Add conversation messages */
     for (i = 0; i < msgcnt; i++) {
         /* Locate message pointer */
-        msg_text = *(texts + i);
-        if (msg_text == 0)
-            msg_text = "";
+        msgtxt = *(texts + i);
+        if (msgtxt == 0)
+            msgtxt = "";
         
         /* Debug: show message being processed */
-        /* printf("j_genreq: Processing message %d, type=%d, text='%s'\n", i, types[i], msg_text); */
+        /* printf("j_genr: Processing message %d, type=%d, text='%s'\n", i, types[i], msgtxt); */
         
         prev_pos = j_pos;
         if (j_add(j_buf, &j_pos, outsize, ",{\"role\":\"") < 0) {
             j_pos = prev_pos;
             j_buf[j_pos] = 0;
-            /* printf("j_genreq: Skipping message %d due to buffer limit\n", i); */
+            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
             continue;
         }
         
@@ -160,7 +167,7 @@ int outsize;
             if (j_add(j_buf, &j_pos, outsize, "user") < 0) {
                 j_pos = prev_pos;
                 j_buf[j_pos] = 0;
-                /* printf("j_genreq: Skipping message %d due to buffer limit\n", i); */
+                /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
                 continue;
             }
             break;
@@ -168,7 +175,7 @@ int outsize;
             if (j_add(j_buf, &j_pos, outsize, "assistant") < 0) {
                 j_pos = prev_pos;
                 j_buf[j_pos] = 0;
-                /* printf("j_genreq: Skipping message %d due to buffer limit\n", i); */
+                /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
                 continue;
             }
             break;
@@ -176,7 +183,7 @@ int outsize;
             if (j_add(j_buf, &j_pos, outsize, "user") < 0) {
                 j_pos = prev_pos;
                 j_buf[j_pos] = 0;
-                /* printf("j_genreq: Skipping message %d due to buffer limit\n", i); */
+                /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
                 continue;
             }
             break;
@@ -185,21 +192,21 @@ int outsize;
         if (j_add(j_buf, &j_pos, outsize, "\",\"content\":\"") < 0) {
             j_pos = prev_pos;
             j_buf[j_pos] = 0;
-            /* printf("j_genreq: Skipping message %d due to buffer limit\n", i); */
+            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
             continue;
         }
         
         /* Simple JSON escaping for message content */
-        if (j_addesc(j_buf, &j_pos, outsize, msg_text) < 0) {
+        if (j_ades(j_buf, &j_pos, outsize, msgtxt) < 0) {
             j_pos = prev_pos;
             j_buf[j_pos] = 0;
-            /* printf("j_genreq: Skipping message %d due to buffer limit\n", i); */
+            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
             continue;
         }
         if (j_add(j_buf, &j_pos, outsize, "\"}") < 0) {
             j_pos = prev_pos;
             j_buf[j_pos] = 0;
-            /* printf("j_genreq: Skipping message %d due to buffer limit\n", i); */
+            /* printf("j_genr: Skipping message %d due to buffer limit\n", i); */
             continue;
         }
     }
@@ -220,13 +227,13 @@ int outsize;
     j_pos = strlen(j_buf);
     
     /* Debug: show buffer usage */
-    /* printf("j_genreq: Used %d/%d bytes in internal buffer\n", j_pos, outsize); */
-    /* printf("j_genreq: Final JSON: '%.200s...'\n", j_buf); */
+    /* printf("j_genr: Used %d/%d bytes in internal buffer\n", j_pos, outsize); */
+    /* printf("j_genr: Final JSON: '%.200s...'\n", j_buf); */
     
     return j_pos;
 }
 
-/* Parse OpenAI response and extract message content */
+/* Parse OpenAI reply and extract message content */
 int j_parse(jsonstr, outbuf, outsize)
 char *jsonstr;
 char *outbuf;
@@ -236,10 +243,10 @@ int outsize;
     char *start;
     int i, len;
     
-    /* Look for "content":" in the response */
+    /* Look for "content":" in the reply */
     ptr = jsonstr;
     while (*ptr) {
-        if (j_match2(ptr, "\"content\":\"")) {
+        if (j_mat2(ptr, "\"content\":\"")) {
             ptr += 11; /* Skip past "content":" */
             start = ptr;
             
@@ -271,12 +278,12 @@ int outsize;
     }
     
     /* No content found */
-    strcpy(outbuf, "No response found");
+    strcpy(outbuf, "No reply found");
     return -1;
 }
 
 /* Match string at pointer */
-int j_match2(ptr, match)
+int j_mat2(ptr, match)
 char *ptr;
 char *match;
 {

@@ -24,6 +24,7 @@
 #include "core1_io_mgr.h"
 #include "config.h"
 #include "cpu_state.h"
+#include "PortDrivers/chat_io.h"
 #include "hardware/timer.h"
 #include "hardware/watchdog.h"
 #include "io_ports.h"
@@ -455,6 +456,7 @@ int main(void)
     }
 
 #if !(defined(WAVESHARE_3_5_DISPLAY) && defined(SD_CARD_SUPPORT))
+    chat_io_prompt_api_key();
     setup_wifi();
 #endif
 #else
@@ -572,6 +574,7 @@ int main(void)
     }
 #if defined(CYW43_WL_GPIO_LED_PIN) && defined(WAVESHARE_3_5_DISPLAY) && defined(SD_CARD_SUPPORT)
     printf("Deferring Wi-Fi/display startup until SD boot images are loaded on shared SPI1...\n");
+    chat_io_prompt_api_key();
     setup_wifi();
 #endif
 #elif defined(REMOTE_FS_SUPPORT)

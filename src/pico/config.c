@@ -15,7 +15,7 @@
 #endif
 
 #define CONFIG_FLASH_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
-#define CONFIG_MAGIC 0x43464730 // "CFG0" in hex (new format with RFS IP)
+#define CONFIG_MAGIC 0x43464731 // "CFG1" in hex (adds OpenAI API key field)
 
 // Cached RFS IP for fast access (loaded on init or after save)
 static char cached_rfs_ip[CONFIG_RFS_IP_MAX_LEN + 1] = {0};
@@ -43,6 +43,16 @@ static uint32_t config_calculate_checksum(const config_t* config)
     return crc32((const uint8_t*)config, data_size);
 }
 
+static bool config_flash_record_valid(const config_t* flash_config)
+{
+    if (flash_config->magic != CONFIG_MAGIC)
+    {
+        return false;
+    }
+
+    return config_calculate_checksum(flash_config) == flash_config->checksum;
+}
+
 void config_init(void)
 {
     // Load cached RFS IP on init
@@ -54,15 +64,7 @@ bool config_exists(void)
     // Read the config from flash
     const config_t* flash_config = (const config_t*)(XIP_BASE + CONFIG_FLASH_OFFSET);
 
-    // Check magic number
-    if (flash_config->magic != CONFIG_MAGIC)
-    {
-        return false;
-    }
-
-    // Verify checksum
-    uint32_t calculated = config_calculate_checksum(flash_config);
-    if (calculated != flash_config->checksum)
+    if (!config_flash_record_valid(flash_config))
     {
         return false;
     }
@@ -172,6 +174,16 @@ bool config_save(const char* ssid, const char* password, const char* rfs_ip)
         strncpy(config.rfs_server_ip, rfs_ip, CONFIG_RFS_IP_MAX_LEN);
         config.rfs_server_ip[CONFIG_RFS_IP_MAX_LEN] = '\0';
     }
+
+    // Preserve any existing OpenAI API key already stored in flash,
+    // even if the record does not yet contain Wi-Fi credentials.
+    const config_t* existing = (const config_t*)(XIP_BASE + CONFIG_FLASH_OFFSET);
+    if (config_flash_record_valid(existing))
+    {
+        memcpy(config.openai_api_key, existing->openai_api_key, sizeof(config.openai_api_key));
+        config.openai_api_key[CONFIG_OPENAI_KEY_MAX_LEN] = '\0';
+    }
+
     config.checksum = config_calculate_checksum(&config);
 
     // Write to flash - Core 0 should be spinning in RAM during AP mode
@@ -194,6 +206,60 @@ bool config_save(const char* ssid, const char* password, const char* rfs_ip)
     }
 
     printf("Configuration saved successfully\n");
+    return true;
+}
+
+bool config_load_openai_key(char* key, size_t key_len)
+{
+    if (!key || key_len == 0)
+    {
+        return false;
+    }
+
+    const config_t* flash_config = (const config_t*)(XIP_BASE + CONFIG_FLASH_OFFSET);
+    if (!config_flash_record_valid(flash_config))
+    {
+        key[0] = '\0';
+        return false;
+    }
+
+    strncpy(key, flash_config->openai_api_key, key_len - 1);
+    key[key_len - 1] = '\0';
+    return key[0] != '\0';
+}
+
+bool config_save_openai_key(const char* key)
+{
+    // Read existing config (or start fresh) and overwrite only the API key.
+    static config_t config;
+    memset(&config, 0, sizeof(config));
+
+    const config_t* existing = (const config_t*)(XIP_BASE + CONFIG_FLASH_OFFSET);
+    if (config_flash_record_valid(existing))
+    {
+        memcpy(&config, existing, sizeof(config));
+    }
+
+    config.magic = CONFIG_MAGIC;
+
+    if (key && key[0] != '\0')
+    {
+        strncpy(config.openai_api_key, key, CONFIG_OPENAI_KEY_MAX_LEN);
+        config.openai_api_key[CONFIG_OPENAI_KEY_MAX_LEN] = '\0';
+    }
+    else
+    {
+        config.openai_api_key[0] = '\0';
+    }
+
+    config.checksum = config_calculate_checksum(&config);
+
+    printf("Writing OpenAI API key to flash...\n");
+    uint32_t ints = save_and_disable_interrupts();
+    flash_range_erase(CONFIG_FLASH_OFFSET, FLASH_SECTOR_SIZE);
+    flash_range_program(CONFIG_FLASH_OFFSET, (const uint8_t*)&config, sizeof(config_t));
+    restore_interrupts(ints);
+    printf("OpenAI API key saved\n");
     return true;
 }
 
